@@ -1,0 +1,9 @@
+site_name: homerun2-schedule-pitcher
+site_description: homerun2 pitcher that runs scheduled checks (token & certificate expiry, probes) and user-defined reminders, and pitches the results into homerun2
+nav:
+  - Home: index.md
+  - API Usage: api-usage.md
+  - Deployment: deployment.md
+  - CI/CD: cicd.md
+plugins:
+  - techdocs-core

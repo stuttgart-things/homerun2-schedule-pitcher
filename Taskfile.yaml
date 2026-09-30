@@ -1,0 +1,109 @@
+---
+version: 3
+includes:
+  git:
+    taskfile: https://raw.githubusercontent.com/stuttgart-things/tasks/refs/heads/main/git/git.yaml
+  lint:
+    taskfile: https://raw.githubusercontent.com/stuttgart-things/tasks/refs/heads/main/git/linting.yaml
+  go:
+    taskfile: https://raw.githubusercontent.com/stuttgart-things/tasks/refs/heads/main/go/lint.yaml
+  dagger:
+    taskfile: https://raw.githubusercontent.com/stuttgart-things/tasks/refs/heads/main/dagger/modules.yaml
+  image:
+    taskfile: https://raw.githubusercontent.com/stuttgart-things/tasks/refs/heads/main/docker/copy.yaml
+  goBuild:
+    taskfile: https://raw.githubusercontent.com/stuttgart-things/tasks/refs/heads/main/go/build.yaml
+  release:
+    taskfile: https://raw.githubusercontent.com/stuttgart-things/tasks/refs/heads/main/go/release-workflow.yaml
+
+vars:
+  PROJECT:
+    sh: basename $(pwd)
+  ORGA_NAME: stuttgart-things
+  GO_MODULE: github.com/{{ .ORGA_NAME }}/{{ .PROJECT }}
+  DAGGER_MODULE_DIR: ./dagger
+  SOURCE_CODE_DIR: "."
+  LINT_REPORT_PATH: /tmp/lint-report-{{ .PROJECT }}.txt
+  TEST_REPORT_PATH: /tmp/test-report-{{ .PROJECT }}.txt
+  TARGET_IMAGE_REPO: ghcr.io/{{ .ORGA_NAME }}/{{ .PROJECT }}
+
+tasks:
+  lint:
+    desc: Run Go lint via Dagger module
+    cmds:
+      - |
+        dagger call -m {{ .DAGGER_MODULE_DIR }} lint \
+          --src "{{ .SOURCE_CODE_DIR }}" \
+          export --path={{ .LINT_REPORT_PATH }} \
+          --progress plain
+
+  build-test-binary:
+    desc: Build and test binary with Redis via Dagger
+    cmds:
+      - |
+        dagger call -m {{ .DAGGER_MODULE_DIR }} \
+        build-and-test-binary \
+        --source "{{ .SOURCE_CODE_DIR }}" \
+        export --path={{ .TEST_REPORT_PATH }} \
+        --progress plain -vv
+
+  build-output-binary:
+    desc: Build project binary
+    cmds:
+      - |
+        dagger call -m {{ .DAGGER_MODULE_DIR }} build \
+        --src "{{ .SOURCE_CODE_DIR }}" \
+        --bin-name="{{ .PROJECT }}" \
+        --progress plain -vv \
+        export --path=/tmp/go/build
+
+  build-scan-image-ko:
+    desc: Build, push and scan container image with ko
+    cmds:
+      - |
+        RANDOM_TAG=$(openssl rand -hex 6)
+        REPO_NAME="ttl.sh/{{ .PROJECT }}-${RANDOM_TAG}"
+        IMAGE_REF=$(dagger call -m {{ .DAGGER_MODULE_DIR }} build-image \
+          --src "{{ .SOURCE_CODE_DIR }}" \
+          --repo "$REPO_NAME" \
+          --push="true" \
+          --progress plain)
+        dagger call -m {{ .DAGGER_MODULE_DIR }} scan-image \
+          --image-ref "$IMAGE_REF" \
+          --severity "HIGH,CRITICAL" \
+          --progress plain \
+          export --path=/tmp/trivy-scan-{{ .PROJECT }}.json
+
+  run-redis-as-service:
+    desc: Run Redis as service via Dagger
+    vars:
+      PORT: 6379
+      PASSWORD: mypass # pragma: allowlist secret
+    cmds:
+      - |
+        dagger call -m github.com/stuttgart-things/dagger/homerun@v0.72.0 \
+          run-redis --port {{ .PORT }} --password "{{ .PASSWORD }}" up
+
+  run-local:
+    desc: Run pitcher locally with file backend (no Redis needed)
+    vars:
+      PORT: '{{ .PORT | default "8080" }}'
+    env:
+      DEMO_MODE: web
+      PITCH_TARGET: file
+      AUTH_TOKEN: local-dev-token
+      PORT: "{{ .PORT }}"
+      LOG_FORMAT: text
+    cmds:
+      - go run .
+
+  trigger-release:
+    desc: Trigger Release workflow on GitHub Actions
+    cmds:
+      - |
+        echo "Triggering Release workflow..."
+        gh workflow run Release
+        sleep 2
+        RUN_ID=$(gh run list --workflow=Release --limit=1 --json databaseId --jq '.[0].databaseId')
+        echo "Run: https://github.com/stuttgart-things/homerun2-schedule-pitcher/actions/runs/${RUN_ID}"
+        gh run watch "${RUN_ID}"

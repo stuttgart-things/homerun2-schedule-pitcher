@@ -1,0 +1,12 @@
+defaultBaseImage: cgr.dev/chainguard/static:latest
+builds:
+  - id: homerun2-schedule-pitcher
+    main: .
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
+      - -X main.version={{ if index .Env "VERSION" }}{{.Env.VERSION}}{{ else }}dev{{ end }}
+      - -X main.commit={{ if index .Env "COMMIT" }}{{.Env.COMMIT}}{{ else }}unknown{{ end }}
+      - -X main.date={{ if index .Env "DATE" }}{{.Env.DATE}}{{ else }}unknown{{ end }}
