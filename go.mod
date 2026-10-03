@@ -6,7 +6,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.7
 	charm.land/lipgloss/v2 v2.0.3
 	github.com/redis/go-redis/v9 v9.20.0
-	github.com/stuttgart-things/homerun-library/v3 v3.1.0
+	github.com/stuttgart-things/homerun-library/v3 v3.2.0
 )
 
 require (
