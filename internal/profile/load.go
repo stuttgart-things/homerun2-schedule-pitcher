@@ -11,6 +11,7 @@ import (
 
 	"github.com/robfig/cron/v3"
 	"gopkg.in/yaml.v3"
+	"k8s.io/apimachinery/pkg/labels"
 )
 
 const (
@@ -30,6 +31,9 @@ const (
 	DefaultOfficeEnd   = 18
 	DefaultAckExpiry   = 3 * 24 * time.Hour
 	DefaultRetention   = 7 * 24 * time.Hour
+
+	DefaultDiscoverySelector = "homerun2.sthings.io/watch-expiry=true"
+	DefaultDiscoveryInterval = time.Hour
 )
 
 var DefaultThresholds = Thresholds{
@@ -148,40 +152,54 @@ func applyDefaults(p *SchedulePitcherProfile) {
 		d.System = DefaultSystem
 	}
 	// Precedence per field: check, spec.defaults, type default, DefaultThresholds.
-	userDefaults := d.Thresholds
+	p.userThresholds = d.Thresholds
 	d.Thresholds = mergeThresholds(d.Thresholds, DefaultThresholds)
 
+	dc := &s.Discovery
+	if dc.LabelSelector == "" {
+		dc.LabelSelector = DefaultDiscoverySelector
+	}
+	if dc.Interval == 0 {
+		dc.Interval = Duration(DefaultDiscoveryInterval)
+	}
+
 	for i := range s.Checks {
-		c := &s.Checks[i]
-		if c.Schedule == "" {
-			c.Schedule = d.Schedule
+		s.Checks[i].Origin = OriginProfile
+		p.applyCheckDefaults(&s.Checks[i])
+	}
+}
+
+// applyCheckDefaults fills a check from spec.defaults and the type defaults.
+func (p *SchedulePitcherProfile) applyCheckDefaults(c *Check) {
+	d := p.Spec.Defaults
+	if c.Schedule == "" {
+		c.Schedule = d.Schedule
+	}
+	if c.Remind == "" {
+		c.Remind = d.Remind
+	}
+	c.Thresholds = mergeThresholds(mergeThresholds(c.Thresholds, p.userThresholds), TypeThresholds[c.Type])
+	c.Thresholds = mergeThresholds(c.Thresholds, DefaultThresholds)
+	c.Tags = mergeTags(d.Tags, c.Tags)
+	if c.Assignee == "" {
+		c.Assignee = d.Assignee
+	}
+	if c.Timeout == 0 {
+		c.Timeout = Duration(DefaultTimeout)
+	}
+	switch c.Type {
+	case TypeGitHubTokenExpiry:
+		if c.APIURL == "" {
+			c.APIURL = "https://api.github.com"
 		}
-		if c.Remind == "" {
-			c.Remind = d.Remind
+		if c.Owner == nil {
+			t := true
+			c.Owner = &t
 		}
-		c.Thresholds = mergeThresholds(mergeThresholds(c.Thresholds, userDefaults), TypeThresholds[c.Type])
-		c.Thresholds = mergeThresholds(c.Thresholds, DefaultThresholds)
-		c.Tags = mergeTags(d.Tags, c.Tags)
-		if c.Assignee == "" {
-			c.Assignee = d.Assignee
-		}
-		if c.Timeout == 0 {
-			c.Timeout = Duration(DefaultTimeout)
-		}
-		switch c.Type {
-		case TypeGitHubTokenExpiry:
-			if c.APIURL == "" {
-				c.APIURL = "https://api.github.com"
-			}
-			if c.Owner == nil {
-				t := true
-				c.Owner = &t
-			}
-		case TypeTLSEndpoint:
-			if c.Target != "" {
-				if _, _, err := net.SplitHostPort(c.Target); err != nil {
-					c.Target = net.JoinHostPort(c.Target, "443")
-				}
+	case TypeTLSEndpoint:
+		if c.Target != "" {
+			if _, _, err := net.SplitHostPort(c.Target); err != nil {
+				c.Target = net.JoinHostPort(c.Target, "443")
 			}
 		}
 	}
@@ -248,51 +266,80 @@ func validate(p *SchedulePitcherProfile) error {
 		add("spec.findings.officeHours: need 0 <= start < end <= 23 with at least one hour between (got %d-%d)", *oh.Start, *oh.End)
 	}
 
+	if s.Discovery.Enabled {
+		if _, err := labels.Parse(s.Discovery.LabelSelector); err != nil {
+			add("spec.discovery.labelSelector: %v", err)
+		}
+	}
+
 	seen := map[string]bool{}
 	for i, c := range s.Checks {
 		where := fmt.Sprintf("spec.checks[%d]", i)
 		if c.ID != "" {
 			where = fmt.Sprintf("spec.checks[%d] (%s)", i, c.ID)
 		}
-		switch {
-		case c.ID == "":
-			add("%s: id is required", where)
-		case !checkIDPattern.MatchString(c.ID):
-			add("%s: id must match %s", where, checkIDPattern)
-		case seen[c.ID]:
+		if seen[c.ID] && c.ID != "" {
 			add("%s: duplicate id", where)
 		}
 		seen[c.ID] = true
-
-		if _, err := CronParser.Parse(c.Schedule); err != nil {
-			add("%s: schedule %q: %v", where, c.Schedule, err)
-		}
-		if _, err := CronParser.Parse(c.Remind); err != nil {
-			add("%s: remind %q: %v", where, c.Remind, err)
-		}
-		t := c.Thresholds
-		if t.Warning < t.Error || t.Error < t.Critical {
-			add("%s: thresholds must satisfy warning >= error >= critical (got %s/%s/%s)", where, t.Warning, t.Error, t.Critical)
-		}
-
-		switch c.Type {
-		case TypeGitHubTokenExpiry:
-			if c.TokenFrom == nil {
-				add("%s: tokenFrom is required for %s", where, c.Type)
-			} else if err := validateValueFrom(c.TokenFrom); err != nil {
-				add("%s: tokenFrom: %v", where, err)
-			}
-		case TypeTLSEndpoint:
-			if c.Target == "" {
-				add("%s: target is required for %s", where, c.Type)
-			}
-		case "":
-			add("%s: type is required", where)
-		default:
-			add("%s: unknown type %q", where, c.Type)
+		for _, err := range validateCheck(c) {
+			add("%s: %v", where, err)
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// CompleteCheck applies the defaults to a check created at runtime (for
+// example by discovery) and validates it like a profile check.
+func (p *SchedulePitcherProfile) CompleteCheck(c Check) (Check, error) {
+	if c.Origin == "" {
+		c.Origin = OriginDiscovered
+	}
+	p.applyCheckDefaults(&c)
+	if errs := validateCheck(c); len(errs) > 0 {
+		return c, fmt.Errorf("check %s: %w", c.ID, errors.Join(errs...))
+	}
+	return c, nil
+}
+
+func validateCheck(c Check) []error {
+	var errs []error
+	add := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
+	switch {
+	case c.ID == "":
+		add("id is required")
+	case !checkIDPattern.MatchString(c.ID):
+		add("id must match %s", checkIDPattern)
+	}
+
+	if _, err := CronParser.Parse(c.Schedule); err != nil {
+		add("schedule %q: %v", c.Schedule, err)
+	}
+	if _, err := CronParser.Parse(c.Remind); err != nil {
+		add("remind %q: %v", c.Remind, err)
+	}
+	t := c.Thresholds
+	if t.Warning < t.Error || t.Error < t.Critical {
+		add("thresholds must satisfy warning >= error >= critical (got %s/%s/%s)", t.Warning, t.Error, t.Critical)
+	}
+
+	switch c.Type {
+	case TypeGitHubTokenExpiry:
+		if c.TokenFrom == nil {
+			add("tokenFrom is required for %s", c.Type)
+		} else if err := validateValueFrom(c.TokenFrom); err != nil {
+			add("tokenFrom: %v", err)
+		}
+	case TypeTLSEndpoint:
+		if c.Target == "" {
+			add("target is required for %s", c.Type)
+		}
+	case "":
+		add("type is required")
+	default:
+		add("unknown type %q", c.Type)
+	}
+	return errs
 }
 
 func validateValueFrom(v *ValueFrom) error {

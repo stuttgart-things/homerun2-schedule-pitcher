@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"runtime"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"text/tabwriter"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/banner"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/config"
+	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/discovery"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/findings"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/handlers"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/metrics"
@@ -151,6 +153,16 @@ func serve(cfg config.Config, args []string) error {
 	}
 	sched.DeliverAsFindings(reporter.AfterRun)
 
+	disc, err := buildDiscoverer(prof)
+	if err != nil {
+		return err
+	}
+	if disc != nil {
+		// The first scan runs before the scheduler starts, so discovered
+		// checks are part of the first complete report.
+		disc.Once(ctx, sched, sched.Checks)
+	}
+
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           middleware.RequestLogging(mux),
@@ -168,6 +180,13 @@ func serve(cfg config.Config, args []string) error {
 		waitForPitcher(ctx, readyCheck)
 	}
 	sched.Start(ctx)
+	if disc != nil {
+		go func() {
+			interval := prof.Spec.Discovery.Interval.D()
+			<-time.After(interval)
+			disc.Loop(ctx, sched, sched.Checks, interval)
+		}()
+	}
 	if fsvc != nil {
 		fsvc.Start(ctx)
 	}
@@ -246,6 +265,13 @@ func runOnce(cfg config.Config, args []string) error {
 	if err != nil {
 		return err
 	}
+	disc, err := buildDiscoverer(prof)
+	if err != nil {
+		return err
+	}
+	if disc != nil {
+		disc.Once(ctx, sched, sched.Checks)
+	}
 	if agent != nil {
 		// Reported once below, as one complete set.
 		sched.DeliverAsFindings(nil)
@@ -282,7 +308,7 @@ func printStatuses(statuses []scheduler.CheckStatus) {
 		s := cs.State
 		band, result := cs.Band, s.Summary
 		if s.Problem != "" {
-			result = s.Problem + "; " + s.Summary
+			result = strings.TrimSuffix(s.Problem+"; "+s.Summary, "; ")
 		}
 		if s.Failing {
 			band, result = "could not check", s.LastError
@@ -338,6 +364,19 @@ func buildStore(ctx context.Context, cfg config.Config, prof *profile.SchedulePi
 		slog.Info("state store: redis", "addr", addr, "port", port, "prefix", st.Prefix())
 	}
 	return st, findings.NewRedis(client, st.Prefix()), nil
+}
+
+// buildDiscoverer returns nil when discovery is off.
+func buildDiscoverer(prof *profile.SchedulePitcherProfile) (*discovery.Discoverer, error) {
+	if !prof.Spec.Discovery.Enabled {
+		return nil, nil
+	}
+	client, err := secrets.NewKubeClient()
+	if err != nil {
+		return nil, fmt.Errorf("discovery: %w", err)
+	}
+	slog.Info("discovery enabled", "namespaces", prof.Spec.Discovery.Namespaces, "selector", prof.Spec.Discovery.LabelSelector, "interval", prof.Spec.Discovery.Interval.String())
+	return &discovery.Discoverer{Client: client, Config: prof.Spec.Discovery, Profile: prof}, nil
 }
 
 func reportSource(prof *profile.SchedulePitcherProfile) string {

@@ -116,6 +116,41 @@ Per check, `schedule`, `remind`, `thresholds` (field by field), `assignee` and
 `apiURL` (GitHub Enterprise), `serverName` (TLS SNI / name to verify).
 Unknown fields are rejected. See [`profiles/`](profiles/) for examples.
 
+## Discovery
+
+With `spec.discovery.enabled` an instance (usually an agent) turns every
+Secret with the label `homerun2.sthings.io/watch-expiry=true` into a
+`github-token-expiry` check, and rescans every `interval` (default 1h). New
+Secrets are checked right away; removed ones drop out of the next report, so
+their findings resolve. A scan that cannot list a namespace only adds checks
+and never removes any.
+
+```yaml
+spec:
+  discovery:
+    enabled: true
+    namespaces: [flux-system, tekton-ci, argocd]   # empty = all namespaces
+    labelSelector: homerun2.sthings.io/watch-expiry=true
+    interval: 1h
+```
+
+```bash
+kubectl -n flux-system label secret git-token-auth homerun2.sthings.io/watch-expiry=true
+```
+
+The key that holds the token is found without annotation when the Secret has
+one key, or one of `token`, `GITHUB_TOKEN`, `github_token`, `password` (in
+this order), which covers Flux `git-token-auth`, Argo CD repository secrets,
+Tekton and Backstage. Optional annotations (prefix `homerun2.sthings.io/`):
+`token-key`, `check-id` (default `<namespace>.<name>`), `description`, `url`,
+`tags` (comma-separated), `assignee`, `api-url` (GitHub Enterprise).
+Checks in `spec.checks` win over discovered ones with the same id.
+
+> **RBAC:** discovery needs `list` on Secrets, and Kubernetes returns the
+> data with it: the agent can read every Secret in the namespaces it scans.
+> Keep `namespaces` to the ones that hold watched tokens, with a `Role` per
+> namespace instead of a `ClusterRole`.
+
 ## Findings from other jobs
 
 Jobs that already run somewhere (a cron job on a VM, an Ansible run, a

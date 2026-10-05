@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -34,6 +36,7 @@ type entry struct {
 	checker  checks.Checker
 	schedule cron.Schedule
 	remind   cron.Schedule
+	cronIDs  []cron.EntryID
 }
 
 // Scheduler owns the checks of one profile.
@@ -44,11 +47,15 @@ type Scheduler struct {
 	loc     *time.Location
 	now     func() time.Time
 
+	secrets checks.SecretResolver
+
+	// mu guards order, entries, cron and ctx: Sync changes the set of
+	// checks while runs and API calls read it.
+	mu      sync.RWMutex
 	order   []string
 	entries map[string]*entry
-
-	mu   sync.Mutex
-	cron *cron.Cron
+	cron    *cron.Cron
+	ctx     context.Context
 
 	// pitch is false when results are delivered as findings instead.
 	pitch    bool
@@ -67,11 +74,11 @@ func (s *Scheduler) DeliverAsFindings(afterRun func(ctx context.Context)) {
 // report of the complete set does not resolve findings of checks that
 // simply have not run yet.
 func (s *Scheduler) AllRan(ctx context.Context) (bool, error) {
-	for _, id := range s.order {
-		if s.entries[id].check.Paused {
+	for _, e := range s.snapshot() {
+		if e.check.Paused {
 			continue
 		}
-		st, err := s.store.Get(ctx, id)
+		st, err := s.store.Get(ctx, e.check.ID)
 		if err != nil {
 			return false, err
 		}
@@ -93,25 +100,141 @@ func New(p *profile.SchedulePitcherProfile, st store.Store, pt pitcher.Pitcher, 
 		now:     time.Now,
 		entries: map[string]*entry{},
 		pitch:   true,
+		secrets: secrets,
 	}
 	for _, c := range p.Spec.Checks {
-		sched, err := profile.ParseSchedule(c.Schedule, s.loc)
+		e, err := s.newEntry(c)
 		if err != nil {
-			return nil, fmt.Errorf("check %s: schedule: %w", c.ID, err)
-		}
-		remind, err := profile.ParseSchedule(c.Remind, s.loc)
-		if err != nil {
-			return nil, fmt.Errorf("check %s: remind: %w", c.ID, err)
-		}
-		checker, err := checks.New(c, secrets)
-		if err != nil {
-			slog.Error("check cannot be set up", "check", c.ID, "error", err)
-			checker = brokenChecker{err: err}
+			return nil, err
 		}
 		s.order = append(s.order, c.ID)
-		s.entries[c.ID] = &entry{check: c, checker: checker, schedule: sched, remind: remind}
+		s.entries[c.ID] = e
 	}
 	return s, nil
+}
+
+func (s *Scheduler) newEntry(c profile.Check) (*entry, error) {
+	sched, err := profile.ParseSchedule(c.Schedule, s.loc)
+	if err != nil {
+		return nil, fmt.Errorf("check %s: schedule: %w", c.ID, err)
+	}
+	remind, err := profile.ParseSchedule(c.Remind, s.loc)
+	if err != nil {
+		return nil, fmt.Errorf("check %s: remind: %w", c.ID, err)
+	}
+	checker, err := checks.New(c, s.secrets)
+	if err != nil {
+		slog.Error("check cannot be set up", "check", c.ID, "error", err)
+		checker = brokenChecker{err: err}
+	}
+	return &entry{check: c, checker: checker, schedule: sched, remind: remind}, nil
+}
+
+// Checks returns the current checks in order.
+func (s *Scheduler) Checks() []profile.Check {
+	var out []profile.Check
+	for _, e := range s.snapshot() {
+		out = append(out, e.check)
+	}
+	return out
+}
+
+// get returns the entry of a check.
+func (s *Scheduler) get(id string) (*entry, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	e, ok := s.entries[id]
+	return e, ok
+}
+
+// snapshot returns the entries in order.
+func (s *Scheduler) snapshot() []*entry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*entry, 0, len(s.order))
+	for _, id := range s.order {
+		out = append(out, s.entries[id])
+	}
+	return out
+}
+
+// Sync replaces the set of checks, e.g. after a discovery scan. New and
+// changed checks are scheduled and run right away when the scheduler runs;
+// removed checks stop. Their state stays in the store, but they are absent
+// from the next report, so their findings resolve.
+func (s *Scheduler) Sync(desired []profile.Check) error {
+	want := map[string]profile.Check{}
+	for _, c := range desired {
+		want[c.ID] = c
+	}
+	s.mu.Lock()
+	var start []string
+	for _, id := range s.order {
+		e := s.entries[id]
+		if c, ok := want[id]; ok && reflect.DeepEqual(c, e.check) {
+			delete(want, id)
+			continue
+		}
+		s.unscheduleLocked(e)
+		delete(s.entries, id)
+		if _, ok := want[id]; !ok {
+			slog.Info("check removed", "check", id)
+		}
+	}
+	var errs []error
+	for _, c := range desired {
+		if _, ok := want[c.ID]; !ok {
+			continue
+		}
+		e, err := s.newEntry(c)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		s.entries[c.ID] = e
+		slog.Info("check added", "check", c.ID, "origin", c.Origin)
+		if s.cron != nil && !c.Paused {
+			s.scheduleLocked(e)
+			start = append(start, c.ID)
+		}
+	}
+	// Keep the order of desired, e.g. profile checks first.
+	s.order = s.order[:0]
+	for _, c := range desired {
+		if _, ok := s.entries[c.ID]; ok && !slices.Contains(s.order, c.ID) {
+			s.order = append(s.order, c.ID)
+		}
+	}
+	ctx := s.ctx
+	s.mu.Unlock()
+
+	if len(start) > 0 {
+		go func() {
+			for _, id := range start {
+				s.runLogged(ctx, id)
+			}
+		}()
+	}
+	return errors.Join(errs...)
+}
+
+func (s *Scheduler) scheduleLocked(e *entry) {
+	id := e.check.ID
+	ctx := s.ctx
+	job := cron.FuncJob(func() { s.runLogged(ctx, id) })
+	// Running on the remind cadence too makes reminders go out at the
+	// configured time instead of at the next regular run.
+	e.cronIDs = []cron.EntryID{s.cron.Schedule(e.schedule, job), s.cron.Schedule(e.remind, job)}
+}
+
+func (s *Scheduler) unscheduleLocked(e *entry) {
+	if s.cron == nil {
+		return
+	}
+	for _, id := range e.cronIDs {
+		s.cron.Remove(id)
+	}
+	e.cronIDs = nil
 }
 
 type brokenChecker struct{ err error }
@@ -124,28 +247,24 @@ func (b brokenChecker) Run(context.Context) (checks.Result, error) {
 // cadence, until ctx is done.
 func (s *Scheduler) Start(ctx context.Context) {
 	c := cron.New(cron.WithLocation(s.loc), cron.WithParser(profile.CronParser))
+	s.mu.Lock()
+	s.cron, s.ctx = c, ctx
+	var initial []string
 	for _, id := range s.order {
 		e := s.entries[id]
 		if e.check.Paused {
 			slog.Info("check paused", "check", id)
 			continue
 		}
-		job := cron.FuncJob(func() { s.runLogged(ctx, id) })
-		c.Schedule(e.schedule, job)
-		// Running on the remind cadence too makes reminders go out at the
-		// configured time instead of at the next regular run.
-		c.Schedule(e.remind, job)
+		s.scheduleLocked(e)
+		initial = append(initial, id)
 	}
-	s.mu.Lock()
-	s.cron = c
 	s.mu.Unlock()
 	c.Start()
 
 	go func() {
-		for _, id := range s.order {
-			if !s.entries[id].check.Paused {
-				s.runLogged(ctx, id)
-			}
+		for _, id := range initial {
+			s.runLogged(ctx, id)
 		}
 	}()
 	go func() {
@@ -166,10 +285,11 @@ func (s *Scheduler) runLogged(ctx context.Context, id string) {
 // RunAll runs every active check once, in profile order.
 func (s *Scheduler) RunAll(ctx context.Context) error {
 	var errs []error
-	for _, id := range s.order {
-		if s.entries[id].check.Paused {
+	for _, e := range s.snapshot() {
+		if e.check.Paused {
 			continue
 		}
+		id := e.check.ID
 		if _, err := s.Run(ctx, id); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", id, err))
 		}
@@ -189,7 +309,7 @@ func (s *Scheduler) Run(ctx context.Context, id string) (state.State, error) {
 }
 
 func (s *Scheduler) run(ctx context.Context, id string) (state.State, error) {
-	e, ok := s.entries[id]
+	e, ok := s.get(id)
 	if !ok {
 		return state.State{}, ErrUnknownCheck
 	}
@@ -270,7 +390,7 @@ type CheckStatus struct {
 
 // History returns the last runs of a check, newest first.
 func (s *Scheduler) History(ctx context.Context, id string, limit int) ([]store.HistoryEntry, error) {
-	if _, ok := s.entries[id]; !ok {
+	if _, ok := s.get(id); !ok {
 		return nil, ErrUnknownCheck
 	}
 	return s.store.History(ctx, id, limit)
@@ -279,10 +399,10 @@ func (s *Scheduler) History(ctx context.Context, id string, limit int) ([]store.
 // Statuses returns all checks in profile order.
 func (s *Scheduler) Statuses(ctx context.Context) ([]CheckStatus, error) {
 	now := s.now().In(s.loc)
-	out := make([]CheckStatus, 0, len(s.order))
-	for _, id := range s.order {
-		e := s.entries[id]
-		st, err := s.store.Get(ctx, id)
+	entries := s.snapshot()
+	out := make([]CheckStatus, 0, len(entries))
+	for _, e := range entries {
+		st, err := s.store.Get(ctx, e.check.ID)
 		if err != nil {
 			return nil, err
 		}
