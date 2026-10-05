@@ -25,19 +25,7 @@ spec:
     assignee: patrick.hermann
     tags: [expiry]
   checks:
-    # The runner token lives on machinery. Reading it from platform needs the
-    # multi-cluster secret access of MVP 2 (#1); until then this check only
-    # works on an instance running on machinery.
-    - id: github-runner-pat
-      type: github-token-expiry
-      description: Fine-grained PAT used by ARC runners
-      tokenFrom:
-        secretKeyRef:
-          name: github-runner-token
-          namespace: tekton-ci
-          key: GITHUB_TOKEN
-      url: https://github.com/settings/personal-access-tokens
-      tags: [pat, runner]
+    # Checks of other clusters run in agents there, see agent-machinery.yaml.
     - id: omni-platform-tls
       type: tls-endpoint
       target: omni.platform.sthings-vsphere.labul.sva.de

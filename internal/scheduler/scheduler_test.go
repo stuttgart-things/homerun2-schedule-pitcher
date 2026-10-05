@@ -141,3 +141,28 @@ spec:
 		t.Fatalf("state = %+v msgs = %+v", st, rec.msgs)
 	}
 }
+
+func TestDeliverAsFindings(t *testing.T) {
+	s, fc, rec, now := setup(t)
+	ctx := context.Background()
+	reports := 0
+	s.DeliverAsFindings(func(context.Context) { reports++ })
+	fc.res = checks.Result{Expiry: now.Add(2 * 24 * time.Hour)}
+
+	if _, err := s.Run(ctx, "pat"); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.msgs) != 0 || reports != 1 {
+		t.Fatalf("pitched %d, reported %d", len(rec.msgs), reports)
+	}
+	if st, _ := s.store.Get(ctx, "pat"); st.Band != status.Critical { // 2 days left, PAT critical at 3d
+		t.Fatalf("state not kept: %+v", st)
+	}
+	if _, err := s.Run(ctx, "nope"); err == nil || reports != 1 {
+		t.Fatalf("unknown check reported: %d", reports)
+	}
+	ok, _ := s.AllRan(ctx)
+	if !ok {
+		t.Fatal("AllRan = false although the only active check ran (tls is paused)")
+	}
+}

@@ -48,6 +48,9 @@ type Config struct {
 	PitcherToken string
 	// PitcherAddr overrides spec.pitcher.addr of the profile.
 	PitcherAddr string
+	// ReportAddr and ReportToken override spec.report (agent mode).
+	ReportAddr  string
+	ReportToken string
 	// RedisAddr, RedisPort and RedisPassword override spec.redis.
 	RedisAddr     string
 	RedisPort     string
@@ -63,6 +66,8 @@ func Load() Config {
 		PitchFile:     homerun.GetEnv("PITCH_FILE", "pitched.log"),
 		PitcherToken:  homerun.GetEnv("PITCHER_TOKEN", ""),
 		PitcherAddr:   homerun.GetEnv("PITCHER_ADDR", ""),
+		ReportAddr:    homerun.GetEnv("REPORT_ADDR", ""),
+		ReportToken:   homerun.GetEnv("REPORT_TOKEN", ""),
 		RedisAddr:     homerun.GetEnv("REDIS_ADDR", ""),
 		RedisPort:     homerun.GetEnv("REDIS_PORT", ""),
 		RedisPassword: homerun.GetEnv("REDIS_PASSWORD", ""),

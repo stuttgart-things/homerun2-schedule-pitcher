@@ -49,6 +49,9 @@ var TypeThresholds = map[string]Thresholds{
 	},
 }
 
+// sourcePattern matches findings sources (see internal/findings).
+var sourcePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
+
 var checkIDPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
 // CronParser accepts standard five-field cron expressions and descriptors
@@ -111,6 +114,10 @@ func applyDefaults(p *SchedulePitcherProfile) {
 	if s.Redis.Addr != "" && s.Redis.Port == "" {
 		s.Redis.Port = "6379"
 	}
+	if s.Report.Source == "" && p.Metadata.Name != "" {
+		s.Report.Source = "checks-" + p.Metadata.Name
+	}
+
 	fc := &s.Findings
 	if fc.OfficeHours.Start == nil {
 		v := DefaultOfficeStart
@@ -221,6 +228,15 @@ func validate(p *SchedulePitcherProfile) error {
 	}
 	if err := validateValueFrom(s.Pitcher.Auth.TokenFrom); err != nil {
 		add("spec.pitcher.auth.tokenFrom: %v", err)
+	}
+	if err := validateValueFrom(s.Report.Auth.TokenFrom); err != nil {
+		add("spec.report.auth.tokenFrom: %v", err)
+	}
+	if s.Report.Source != "" && !sourcePattern.MatchString(s.Report.Source) {
+		add("spec.report.source must match %s", sourcePattern)
+	}
+	if s.Report.Addr != "" && s.Report.Source == "" {
+		add("spec.report.source is required when metadata.name is empty")
 	}
 	if err := validateValueFrom(s.Redis.PasswordFrom); err != nil {
 		add("spec.redis.passwordFrom: %v", err)

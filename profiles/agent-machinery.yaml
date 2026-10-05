@@ -1,0 +1,26 @@
+# Agent on machinery: runs the checks next to the secrets and sends only the
+# results to the central instance on platform (POST /findings).
+# Deploy as a CronJob (`run`) or a small Deployment (`serve`).
+apiVersion: homerun2.sthings.io/v1alpha1
+kind: SchedulePitcherProfile
+metadata:
+  name: machinery
+spec:
+  report:
+    addr: https://schedule-pitcher.platform.sthings-vsphere.labul.sva.de/findings
+    # source defaults to checks-<metadata.name> = checks-machinery
+    caFile: /etc/ssl/vault-pki-ca/ca.crt
+    auth:
+      tokenFrom:
+        secretKeyRef: { name: schedule-pitcher-central, key: token }
+  checks:
+    - id: github-runner-pat
+      type: github-token-expiry
+      description: Fine-grained PAT used by ARC runners (Backstage create-vm github-runner)
+      tokenFrom:
+        secretKeyRef:
+          name: github-runner-token
+          namespace: tekton-ci
+          key: GITHUB_TOKEN
+      url: https://github.com/settings/personal-access-tokens
+      tags: [pat, runner]
