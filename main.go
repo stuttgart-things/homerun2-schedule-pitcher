@@ -19,6 +19,9 @@ import (
 	"syscall"
 	"text/tabwriter"
 	"time"
+	// Embedded zone data: minimal images (alpine, distroless) may have no
+	// tzdata, and the profile's timezone must load anyway.
+	_ "time/tzdata"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"

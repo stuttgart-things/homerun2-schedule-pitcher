@@ -228,15 +228,18 @@ exit 0
 		WithEnvVariable("PITCH_TARGET", "stdout").
 		WithEnvVariable("PORT", fmt.Sprint(port)).
 		WithEnvVariable("LOG_FORMAT", "text").
-		WithExec([]string{"sh", "-c", testCmd}, dagger.ContainerWithExecOpts{})
+		WithExec([]string{"sh", "-c", testCmd}, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
 
-	_, err := result.Sync(ctx)
+	// The script's output is always read, so a failure shows what failed.
+	code, err := result.ExitCode(ctx)
 	if err != nil {
-		testLog := result.File("/app/test-output.log")
-		return testLog, fmt.Errorf("tests failed - check test-output.log for details: %w", err)
+		return nil, fmt.Errorf("running integration test: %w", err)
 	}
-
 	testLog := result.File("/app/test-output.log")
+	if code != 0 {
+		out, _ := testLog.Contents(ctx)
+		return testLog, fmt.Errorf("integration test failed (exit %d):\n%s", code, out)
+	}
 	return testLog, nil
 }
 
