@@ -174,6 +174,7 @@ func (s *Scheduler) Run(ctx context.Context, id string) (state.State, error) {
 	logRun(id, next, runErr)
 
 	var pitchErrs []error
+	var pitched []string
 	for _, n := range notes {
 		m := pitcher.Render(n, e.check, s.system)
 		err := s.pitcher.Pitch(ctx, m)
@@ -182,6 +183,7 @@ func (s *Scheduler) Run(ctx context.Context, id string) (state.State, error) {
 			pitchErrs = append(pitchErrs, err)
 			continue
 		}
+		pitched = append(pitched, string(n.Kind))
 		slog.Info("pitched", "check", id, "kind", n.Kind, "severity", m.Severity, "title", m.Title)
 	}
 	if len(pitchErrs) > 0 {
@@ -194,6 +196,9 @@ func (s *Scheduler) Run(ctx context.Context, id string) (state.State, error) {
 
 	if err := s.store.Put(ctx, next); err != nil {
 		return next, fmt.Errorf("writing state: %w", err)
+	}
+	if err := s.store.AddHistory(ctx, id, store.EntryFor(next, pitched)); err != nil {
+		slog.Warn("writing history failed", "check", id, "error", err)
 	}
 	metrics.ObserveState(next)
 	return next, errors.Join(pitchErrs...)
@@ -217,6 +222,14 @@ type CheckStatus struct {
 	State   state.State   `json:"state"`
 	Band    string        `json:"band"`
 	NextRun *time.Time    `json:"nextRun,omitempty"`
+}
+
+// History returns the last runs of a check, newest first.
+func (s *Scheduler) History(ctx context.Context, id string, limit int) ([]store.HistoryEntry, error) {
+	if _, ok := s.entries[id]; !ok {
+		return nil, ErrUnknownCheck
+	}
+	return s.store.History(ctx, id, limit)
 }
 
 // Statuses returns all checks in profile order.

@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/banner"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/config"
@@ -93,10 +95,11 @@ func serve(cfg config.Config, args []string) error {
 	if err != nil {
 		return err
 	}
-	if prof.Spec.Redis.Addr != "" {
-		slog.Warn("spec.redis is not used yet, state is kept in memory", "addr", prof.Spec.Redis.Addr)
+	st, err := buildStore(ctx, cfg, prof, resolver)
+	if err != nil {
+		return err
 	}
-	sched, err := scheduler.New(prof, store.NewMemory(), pt, resolver)
+	sched, err := scheduler.New(prof, st, pt, resolver)
 	if err != nil {
 		return err
 	}
@@ -107,10 +110,11 @@ func serve(cfg config.Config, args []string) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handlers.NewHealthHandler(buildInfo))
-	mux.HandleFunc("GET /ready", handlers.NewReadyHandler(&ready))
+	mux.HandleFunc("GET /ready", handlers.NewReadyHandler(&ready, st.Ping))
 	mux.Handle("GET /metrics", promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{}))
 	mux.HandleFunc("GET /api/checks", auth(handlers.NewChecksHandler(sched)))
 	mux.HandleFunc("POST /api/checks/{id}/run", auth(handlers.NewRunHandler(sched)))
+	mux.HandleFunc("GET /api/checks/{id}/history", auth(handlers.NewHistoryHandler(sched)))
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -234,6 +238,47 @@ func printStatuses(statuses []scheduler.CheckStatus) {
 		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", cs.Check.ID, cs.Check.Type, band, exp, result)
 	}
 	_ = tw.Flush()
+}
+
+// buildStore returns the Redis store when an address is configured (profile
+// or REDIS_ADDR), otherwise the in-memory store.
+func buildStore(ctx context.Context, cfg config.Config, prof *profile.SchedulePitcherProfile, resolver *secrets.Resolver) (store.Store, error) {
+	rc := prof.Spec.Redis
+	addr, port, password := rc.Addr, rc.Port, rc.Password
+	if cfg.RedisAddr != "" {
+		addr = cfg.RedisAddr
+	}
+	if cfg.RedisPort != "" {
+		port = cfg.RedisPort
+	}
+	if port == "" {
+		port = "6379"
+	}
+	if addr == "" {
+		slog.Warn("no Redis configured, state is kept in memory and lost on restart")
+		return store.NewMemory(), nil
+	}
+	switch {
+	case cfg.RedisPassword != "":
+		password = cfg.RedisPassword
+	case rc.PasswordFrom != nil:
+		p, err := resolver.Resolve(ctx, rc.PasswordFrom)
+		if err != nil {
+			return nil, fmt.Errorf("resolving spec.redis.passwordFrom: %w", err)
+		}
+		password = p
+	}
+	client := redis.NewClient(&redis.Options{Addr: net.JoinHostPort(addr, port), Password: password})
+	st := store.NewRedis(client, rc.Prefix)
+	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := st.Ping(pingCtx); err != nil {
+		// Not fatal: /ready reports it and runs fail until Redis is back.
+		slog.Error("redis is not reachable", "addr", addr, "port", port, "error", err)
+	} else {
+		slog.Info("state store: redis", "addr", addr, "port", port, "prefix", st.Prefix())
+	}
+	return st, nil
 }
 
 // buildPitcher returns the delivery target and, for HTTP, a readiness probe.

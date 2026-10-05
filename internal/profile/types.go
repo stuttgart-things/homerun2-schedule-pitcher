@@ -46,6 +46,8 @@ type RedisConfig struct {
 	Port         string     `yaml:"port"`
 	Password     string     `yaml:"password"`
 	PasswordFrom *ValueFrom `yaml:"passwordFrom"`
+	// Prefix of all keys, default homerun2-schedule-pitcher.
+	Prefix string `yaml:"prefix"`
 }
 
 // ValueFrom points to a secret value. Exactly one source must be set.
@@ -68,6 +70,8 @@ type Defaults struct {
 	Thresholds Thresholds `yaml:"thresholds"`
 	System     string     `yaml:"system"`
 	Tags       []string   `yaml:"tags"`
+	// Assignee is used for checks without their own assignee.
+	Assignee string `yaml:"assignee"`
 }
 
 // Thresholds are the remaining times at or below which a check enters a band.

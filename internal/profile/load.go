@@ -33,6 +33,17 @@ var DefaultThresholds = Thresholds{
 	Critical: Duration(24 * time.Hour),
 }
 
+// TypeThresholds are per-type defaults between spec.defaults and
+// DefaultThresholds. Tokens need more lead time to rotate than certificates
+// that are usually renewed automatically.
+var TypeThresholds = map[string]Thresholds{
+	TypeGitHubTokenExpiry: {
+		Warning:  Duration(30 * 24 * time.Hour),
+		Error:    Duration(14 * 24 * time.Hour),
+		Critical: Duration(3 * 24 * time.Hour),
+	},
+}
+
 var checkIDPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
 // CronParser accepts standard five-field cron expressions and descriptors
@@ -108,6 +119,8 @@ func applyDefaults(p *SchedulePitcherProfile) {
 	if d.System == "" {
 		d.System = DefaultSystem
 	}
+	// Precedence per field: check, spec.defaults, type default, DefaultThresholds.
+	userDefaults := d.Thresholds
 	d.Thresholds = mergeThresholds(d.Thresholds, DefaultThresholds)
 
 	for i := range s.Checks {
@@ -118,8 +131,12 @@ func applyDefaults(p *SchedulePitcherProfile) {
 		if c.Remind == "" {
 			c.Remind = d.Remind
 		}
-		c.Thresholds = mergeThresholds(c.Thresholds, d.Thresholds)
+		c.Thresholds = mergeThresholds(mergeThresholds(c.Thresholds, userDefaults), TypeThresholds[c.Type])
+		c.Thresholds = mergeThresholds(c.Thresholds, DefaultThresholds)
 		c.Tags = mergeTags(d.Tags, c.Tags)
+		if c.Assignee == "" {
+			c.Assignee = d.Assignee
+		}
 		if c.Timeout == 0 {
 			c.Timeout = Duration(DefaultTimeout)
 		}

@@ -51,3 +51,11 @@ func Max(a, b Band) Band {
 	}
 	return b
 }
+
+// MarshalText makes bands readable in JSON ("warning" instead of 1).
+func (b Band) MarshalText() ([]byte, error) { return []byte(b.String()), nil }
+
+func (b *Band) UnmarshalText(text []byte) error {
+	*b = Parse(string(text))
+	return nil
+}

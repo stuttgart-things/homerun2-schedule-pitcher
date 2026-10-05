@@ -6,9 +6,10 @@ homerun2 pitcher that runs scheduled checks (token & certificate expiry, probes)
 > [#1 Design: homerun2-schedule-pitcher](https://github.com/stuttgart-things/homerun2-schedule-pitcher/issues/1).
 > Implemented so far: the scheduler core with the checks `github-token-expiry`
 > and `tls-endpoint`, the state machine, delivery to omni-pitcher (`grafana` and
-> `generic` format), `/health`, `/ready`, `/metrics` and a small JSON API.
-> State is kept in memory (the no-Redis mode). Still to come: Redis state,
-> reminders, the web UI, CI workflows and KCL manifests.
+> `generic` format), state and history in Redis (or in memory without Redis),
+> `/health`, `/ready`, `/metrics` and a small JSON API. Still to come (MVP 2 in
+> #1): findings from other jobs, office-hours delivery, reminders, multi-cluster
+> secret access, the web UI, CI workflows and KCL manifests.
 
 ## How it works
 
@@ -25,8 +26,10 @@ omni-pitcher when the state of a check changes:
 | Token without expiry date | `info`, once |
 
 Bands come from the time left until expiry: at or below `thresholds.warning`
-(default `30d`) is warning, `error` (`7d`) is error, `critical` (`1d`) or
-expired is critical. A check can also raise the band itself: a token GitHub
+is warning, `error` is error, `critical` or expired is critical. Defaults are
+`30d`/`7d`/`1d`, and `30d`/`14d`/`3d` for `github-token-expiry`, since tokens
+need more lead time to rotate. Precedence per field: check, `spec.defaults`,
+type default, global default. A check can also raise the band itself: a token GitHub
 rejects (`401`) is critical, a certificate that is not trusted or not valid for
 the host name is error.
 
@@ -45,6 +48,9 @@ kind: SchedulePitcherProfile
 metadata:
   name: machinery
 spec:
+  redis:                       # optional; without it state is kept in memory
+    addr: redis-stack.homerun2.svc.cluster.local
+    port: "6379"               # password: REDIS_PASSWORD or password / passwordFrom
   pitcher:
     addr: https://omni.platform.sthings-vsphere.labul.sva.de/pitch/grafana
     format: grafana            # grafana (POST /pitch/grafana) | generic (POST /pitch)
@@ -58,6 +64,7 @@ spec:
     remind: "0 8 * * *"
     thresholds: { warning: 30d, error: 7d, critical: 1d }
     system: homerun2-schedule-pitcher
+    assignee: patrick.hermann
     tags: [expiry]
   checks:
     - id: github-runner-pat
@@ -67,7 +74,6 @@ spec:
         secretKeyRef: { name: github-runner-token, namespace: tekton-ci, key: GITHUB_TOKEN }
       thresholds: { warning: 30d, error: 14d, critical: 3d }
       url: https://github.com/settings/personal-access-tokens
-      assignee: platform-team
     - id: omni-platform-tls
       type: tls-endpoint
       target: omni.platform.sthings-vsphere.labul.sva.de
@@ -79,8 +85,8 @@ Secret values (`tokenFrom`, `passwordFrom`) take exactly one of
 `secretKeyRef` (read through the Kubernetes API, in-cluster or `KUBECONFIG`;
 a missing namespace means the pod's own), `env` or `file`.
 
-Per check, `schedule`, `remind`, `thresholds` (field by field) and `tags`
-(added to the default tags) override `spec.defaults`. Further fields:
+Per check, `schedule`, `remind`, `thresholds` (field by field), `assignee` and
+`tags` (added to the default tags) override `spec.defaults`. Further fields:
 `description`, `url`, `assignee`, `paused`, `timeout` (default `10s`),
 `apiURL` (GitHub Enterprise), `serverName` (TLS SNI / name to verify).
 Unknown fields are rejected. See [`profiles/`](profiles/) for examples.
@@ -101,10 +107,24 @@ homerun2-schedule-pitcher run --profile profile.yaml [--dry-run] [--check <id>]
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
 | `/health` | `GET` | None | Liveness (version, commit, date) |
-| `/ready` | `GET` | None | `200` once the scheduler runs |
+| `/ready` | `GET` | None | `200` once the scheduler runs and the state store answers |
 | `/metrics` | `GET` | None | Prometheus metrics |
 | `/api/checks` | `GET` | Bearer | All checks with band, expiry, last result, next run |
 | `/api/checks/{id}/run` | `POST` | Bearer | Run a check now; returns its new state |
+| `/api/checks/{id}/history?limit=N` | `GET` | Bearer | Last runs of a check, newest first (default 20, max 100) |
+
+### State in Redis
+
+With `spec.redis.addr` (or `REDIS_ADDR`) the state survives restarts and is
+shared between replicas; without it the service keeps state in memory and
+pitches a check that is not ok once more after a restart. Keys (prefix
+`homerun2-schedule-pitcher:`, `spec.redis.prefix` changes it):
+
+| Key | Type | Content |
+|---|---|---|
+| `…:check:<id>:state` | hash | band, expiry, summary, problem, failing, last error, what was pitched when (`redis-cli HGETALL`) |
+| `…:check:<id>:history` | stream | last 100 runs, one JSON `entry` each |
+| `…:lock:<id>` | string + TTL | run lock with an owner token, so two replicas never run the same check at once |
 
 Metrics: `schedule_pitcher_check_last_run_timestamp_seconds{check}`,
 `schedule_pitcher_check_status{check}` (0 ok … 3 critical, -1 unknown),
@@ -123,6 +143,9 @@ Metrics: `schedule_pitcher_check_last_run_timestamp_seconds{check}`,
 | `PITCH_FILE` | File for `PITCH_TARGET=file` (JSON lines) | `pitched.log` |
 | `PITCHER_ADDR` | Overrides `spec.pitcher.addr` | |
 | `PITCHER_TOKEN` | Overrides `spec.pitcher.auth` | |
+| `REDIS_ADDR` | Overrides `spec.redis.addr`; enables the Redis store | |
+| `REDIS_PORT` | Overrides `spec.redis.port` | `6379` |
+| `REDIS_PASSWORD` | Overrides `spec.redis.password` / `passwordFrom` | |
 | `POD_NAMESPACE` | Namespace for `secretKeyRef` without namespace | pod namespace |
 | `LOG_FORMAT` | `json` or `text` | `json` |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, `error` | `info` |
@@ -134,7 +157,7 @@ Metrics: `schedule_pitcher_check_last_run_timestamp_seconds{check}`,
 task run-once     # dry run of profiles/local.yaml (uses `gh auth token`)
 task run-local    # serve profiles/local.yaml, pitching to stdout
 
-go test ./...     # unit tests, no Redis or cluster needed
+go test ./...     # unit tests, no Redis or cluster needed (miniredis)
 task lint
 task build-scan-image-ko
 ```
