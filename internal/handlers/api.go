@@ -6,17 +6,20 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"sync/atomic"
 	"time"
 
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/scheduler"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/state"
+	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/store"
 )
 
 // Scheduler is what the API needs from the scheduler.
 type Scheduler interface {
 	Statuses(ctx context.Context) ([]scheduler.CheckStatus, error)
 	Run(ctx context.Context, id string) (state.State, error)
+	History(ctx context.Context, id string, limit int) ([]store.HistoryEntry, error)
 }
 
 // CheckView is the API representation of a check.
@@ -113,12 +116,43 @@ func NewRunHandler(s Scheduler) http.HandlerFunc {
 	}
 }
 
-// NewReadyHandler answers 200 once ready is set, 503 before.
-func NewReadyHandler(ready *atomic.Bool) http.HandlerFunc {
+// NewHistoryHandler serves GET /api/checks/{id}/history?limit=N (default 20).
+func NewHistoryHandler(s Scheduler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		limit := 20
+		if v := r.URL.Query().Get("limit"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 || n > store.HistoryLimit {
+				respondWithJSON(w, http.StatusBadRequest, map[string]string{"status": "error", "message": "limit must be 1.." + strconv.Itoa(store.HistoryLimit)})
+				return
+			}
+			limit = n
+		}
+		h, err := s.History(r.Context(), id, limit)
+		switch {
+		case errors.Is(err, scheduler.ErrUnknownCheck):
+			respondWithJSON(w, http.StatusNotFound, map[string]string{"status": "error", "message": "unknown check " + id})
+		case err != nil:
+			respondWithJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "error", "message": err.Error()})
+		default:
+			respondWithJSON(w, http.StatusOK, h)
+		}
+	}
+}
+
+// NewReadyHandler answers 200 once ready is set and ping (if any) succeeds.
+func NewReadyHandler(ready *atomic.Bool, ping func(context.Context) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !ready.Load() {
 			respondWithJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not ready"})
 			return
+		}
+		if ping != nil {
+			if err := ping(r.Context()); err != nil {
+				respondWithJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not ready", "message": "store: " + err.Error()})
+				return
+			}
 		}
 		respondWithJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	}

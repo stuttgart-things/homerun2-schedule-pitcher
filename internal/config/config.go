@@ -48,16 +48,23 @@ type Config struct {
 	PitcherToken string
 	// PitcherAddr overrides spec.pitcher.addr of the profile.
 	PitcherAddr string
+	// RedisAddr, RedisPort and RedisPassword override spec.redis.
+	RedisAddr     string
+	RedisPort     string
+	RedisPassword string
 }
 
 // Load reads the configuration once at startup.
 func Load() Config {
 	return Config{
-		ProfilePath:  homerun.GetEnv("PROFILE_PATH", "/etc/homerun2-schedule-pitcher/profile.yaml"),
-		Port:         homerun.GetEnv("PORT", "8080"),
-		PitchTarget:  homerun.GetEnv("PITCH_TARGET", "http"),
-		PitchFile:    homerun.GetEnv("PITCH_FILE", "pitched.log"),
-		PitcherToken: homerun.GetEnv("PITCHER_TOKEN", ""),
-		PitcherAddr:  homerun.GetEnv("PITCHER_ADDR", ""),
+		ProfilePath:   homerun.GetEnv("PROFILE_PATH", "/etc/homerun2-schedule-pitcher/profile.yaml"),
+		Port:          homerun.GetEnv("PORT", "8080"),
+		PitchTarget:   homerun.GetEnv("PITCH_TARGET", "http"),
+		PitchFile:     homerun.GetEnv("PITCH_FILE", "pitched.log"),
+		PitcherToken:  homerun.GetEnv("PITCHER_TOKEN", ""),
+		PitcherAddr:   homerun.GetEnv("PITCHER_ADDR", ""),
+		RedisAddr:     homerun.GetEnv("REDIS_ADDR", ""),
+		RedisPort:     homerun.GetEnv("REDIS_PORT", ""),
+		RedisPassword: homerun.GetEnv("REDIS_PASSWORD", ""),
 	}
 }

@@ -82,6 +82,10 @@ func TestRunPitchesOnceAndRetriesFailedDelivery(t *testing.T) {
 	if _, err := s.Run(ctx, "pat"); err != nil || len(rec.msgs) != 1 {
 		t.Fatalf("second run pitched again: %d msgs, %v", len(rec.msgs), err)
 	}
+	h, _ := s.History(ctx, "pat", 10)
+	if len(h) != 3 || len(h[0].Pitched) != 0 || len(h[1].Pitched) != 1 || h[1].Pitched[0] != "firing" || len(h[2].Pitched) != 0 {
+		t.Fatalf("history = %+v", h)
+	}
 }
 
 func TestRunErrors(t *testing.T) {

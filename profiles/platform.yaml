@@ -1,7 +1,7 @@
 apiVersion: homerun2.sthings.io/v1alpha1
 kind: SchedulePitcherProfile
 metadata:
-  name: machinery
+  name: platform
 spec:
   pitcher:
     addr: https://omni.platform.sthings-vsphere.labul.sva.de/pitch/grafana
@@ -13,13 +13,21 @@ spec:
           name: omni-pitcher-labul-platform
           namespace: crossplane-system
           key: token
+  # The password comes from REDIS_PASSWORD (Secret homerun2-schedule-pitcher-redis,
+  # key password), like the other homerun2 services.
+  redis:
+    addr: redis-stack.homerun2.svc.cluster.local
+    port: "6379"
   defaults:
     schedule: "0 */6 * * *"
     timezone: Europe/Berlin
     remind: "0 8 * * *"
-    thresholds: { warning: 30d, error: 7d, critical: 1d }
+    assignee: patrick.hermann
     tags: [expiry]
   checks:
+    # The runner token lives on machinery. Reading it from platform needs the
+    # multi-cluster secret access of MVP 2 (#1); until then this check only
+    # works on an instance running on machinery.
     - id: github-runner-pat
       type: github-token-expiry
       description: Fine-grained PAT used by ARC runners
@@ -28,9 +36,7 @@ spec:
           name: github-runner-token
           namespace: tekton-ci
           key: GITHUB_TOKEN
-      thresholds: { warning: 30d, error: 14d, critical: 3d }
       url: https://github.com/settings/personal-access-tokens
-      assignee: platform-team
       tags: [pat, runner]
     - id: omni-platform-tls
       type: tls-endpoint

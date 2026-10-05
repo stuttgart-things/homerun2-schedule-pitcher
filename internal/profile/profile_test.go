@@ -75,6 +75,42 @@ spec:
 	}
 }
 
+func TestTypeThresholds(t *testing.T) {
+	p, err := Parse([]byte(`
+apiVersion: homerun2.sthings.io/v1alpha1
+kind: SchedulePitcherProfile
+spec:
+  defaults:
+    thresholds: { critical: 2d }
+    assignee: patrick.hermann
+  checks:
+    - {id: pat, type: github-token-expiry, tokenFrom: {env: X}}
+    - {id: pat-own, type: github-token-expiry, tokenFrom: {env: X}, thresholds: {error: 10d}, assignee: someone}
+    - {id: tls, type: tls-endpoint, target: 'a:1'}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][3]time.Duration{
+		"pat":     {30 * day, 14 * day, 2 * day}, // type default, critical from spec.defaults
+		"pat-own": {30 * day, 10 * day, 2 * day},
+		"tls":     {30 * day, 7 * day, 2 * day},
+	}
+	for id, w := range want {
+		c, _ := p.FindCheck(id)
+		got := [3]time.Duration{c.Thresholds.Warning.D(), c.Thresholds.Error.D(), c.Thresholds.Critical.D()}
+		if got != w {
+			t.Errorf("%s: thresholds = %v, want %v", id, got, w)
+		}
+	}
+	if c, _ := p.FindCheck("pat"); c.Assignee != "patrick.hermann" {
+		t.Errorf("default assignee = %q", c.Assignee)
+	}
+	if c, _ := p.FindCheck("pat-own"); c.Assignee != "someone" {
+		t.Errorf("own assignee = %q", c.Assignee)
+	}
+}
+
 func TestParseErrors(t *testing.T) {
 	head := "apiVersion: homerun2.sthings.io/v1alpha1\nkind: SchedulePitcherProfile\n"
 	tests := []struct {

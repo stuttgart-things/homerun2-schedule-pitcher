@@ -9,8 +9,10 @@ homerun2-schedule-pitcher — homerun2 pitcher that runs scheduled checks (token
 MVP in progress. The design lives in issue #1; implement against it and keep
 it updated when decisions change. Done: scheduler core (#8) with profile
 loader, `github-token-expiry` and `tls-endpoint` checks, state machine,
-omni-pitcher delivery (`grafana` / `generic`), in-memory state, `/api/checks`.
-Next: Redis store, reminders, web UI, CI workflows + KCL. The Dagger module in
+omni-pitcher delivery (`grafana` / `generic`), `/api/checks`; Redis store with
+history and locks (#10). Next (MVP 2 in #1): findings ingest + office-hours
+delivery, reminders, multi-cluster secrets, web UI, CI workflows + KCL. The
+instance runs on platform and uses the homerun2 `redis-stack`. The Dagger module in
 `dagger/` still holds the scaffold's integration test and needs updating with
 the CI task.
 
@@ -22,7 +24,8 @@ the CI task.
 - `internal/state`: bands and the pitch decision (pure, unit-tested)
 - `internal/scheduler`: cron, locks, runs checks, pitches, stores state
 - `internal/pitcher`: rendering and delivery (HTTP grafana/generic, file, stdout)
-- `internal/store`: `Store` interface, `Memory` (no-Redis mode)
+- `internal/store`: `Store` interface, `Memory` (no-Redis mode), `Redis`; one
+  contract test runs against both (miniredis)
 
 ## Tech Stack
 
