@@ -7,6 +7,11 @@ type SchedulePitcherProfile struct {
 	Kind       string   `yaml:"kind"`
 	Metadata   Metadata `yaml:"metadata"`
 	Spec       Spec     `yaml:"spec"`
+
+	// userThresholds are spec.defaults.thresholds as written, before the
+	// global defaults were merged in, so type defaults keep their place in
+	// the precedence for checks completed later.
+	userThresholds Thresholds
 }
 
 type Metadata struct {
@@ -22,6 +27,18 @@ type Spec struct {
 	// Report turns the instance into an agent: check results are sent as
 	// findings to a central instance instead of being pitched.
 	Report ReportConfig `yaml:"report"`
+	// Discovery turns labelled Secrets into checks.
+	Discovery Discovery `yaml:"discovery"`
+}
+
+// Discovery scans Secrets for tokens to watch.
+type Discovery struct {
+	Enabled bool `yaml:"enabled"`
+	// Namespaces to scan; empty means all (needs cluster-wide list).
+	Namespaces    []string `yaml:"namespaces"`
+	LabelSelector string   `yaml:"labelSelector"`
+	// Interval between scans (default 1h).
+	Interval Duration `yaml:"interval"`
 }
 
 // ReportConfig points an agent to the central POST /findings.
@@ -112,6 +129,12 @@ type Thresholds struct {
 	Critical Duration `yaml:"critical"`
 }
 
+// Check origins.
+const (
+	OriginProfile    = "profile"
+	OriginDiscovered = "discovered"
+)
+
 // Check types.
 const (
 	TypeGitHubTokenExpiry = "github-token-expiry"
@@ -131,6 +154,8 @@ type Check struct {
 	URL        string     `yaml:"url"`
 	Assignee   string     `yaml:"assignee"`
 	Paused     bool       `yaml:"paused"`
+	// Origin is profile or discovered; set by the loader.
+	Origin string `yaml:"-"`
 
 	// github-token-expiry
 	TokenFrom *ValueFrom `yaml:"tokenFrom"`

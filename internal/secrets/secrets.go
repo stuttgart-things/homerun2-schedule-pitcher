@@ -95,6 +95,15 @@ type kubeGetter struct {
 }
 
 func newKubeGetter() (*kubeGetter, error) {
+	client, err := NewKubeClient()
+	if err != nil {
+		return nil, err
+	}
+	return &kubeGetter{client: client}, nil
+}
+
+// NewKubeClient builds a client from the in-cluster config or KUBECONFIG.
+func NewKubeClient() (kubernetes.Interface, error) {
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
 		cfg, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
@@ -108,7 +117,7 @@ func newKubeGetter() (*kubeGetter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating kubernetes client: %w", err)
 	}
-	return &kubeGetter{client: client}, nil
+	return client, nil
 }
 
 func (k *kubeGetter) GetSecretKey(ctx context.Context, namespace, name, key string) (string, error) {

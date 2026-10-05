@@ -13,8 +13,8 @@ omni-pitcher delivery (`grafana` / `generic`), `/api/checks`; Redis store with
 history and locks (#10); findings ingest with office-hours delivery and
 acknowledge (#14); check results as findings and agent mode (#16): agents on
 the clusters run checks and send results to the central `POST /findings`.
-Next (MVP 2 in #1): discovery in the agent, CI workflows + KCL, web UI,
-reminders. The
+Label-based discovery of token Secrets (#18). Next (MVP 2 in #1): CI
+workflows + KCL, web UI, reminders. The
 instance runs on platform and uses the homerun2 `redis-stack`. The Dagger module in
 `dagger/` still holds the scaffold's integration test and needs updating with
 the CI task.
@@ -33,6 +33,8 @@ the CI task.
   office-hours messages (pure), `Service` (ingest, ack, hourly `Tick`), stores
 - `internal/report`: check results -> findings (`FromStatuses`), senders to
   the local findings service (central) or a central `/findings` (agent)
+- `internal/discovery`: labelled Secrets -> checks, `Loop` syncs them into
+  the scheduler (`Scheduler.Sync`); tests use the client-go fake clientset
 
 ## Tech Stack
 

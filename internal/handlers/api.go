@@ -56,7 +56,7 @@ func viewOf(cs scheduler.CheckStatus) CheckView {
 		Schedule: c.Schedule, Remind: c.Remind,
 		Thresholds: [3]string{t.Warning.String(), t.Error.String(), t.Critical.String()},
 		Tags:       c.Tags, URL: c.URL, Assignee: c.Assignee, Paused: c.Paused,
-		Source: "profile", Band: cs.Band, Failing: s.Failing, LastError: s.LastError,
+		Source: c.Origin, Band: cs.Band, Failing: s.Failing, LastError: s.LastError,
 		Summary: s.Summary, Subject: s.Subject, Problem: s.Problem,
 		Expiry: timePtr(s.Expiry), LastRun: timePtr(s.LastRun), LastOK: timePtr(s.LastOK),
 		NextRun: cs.NextRun,

@@ -29,6 +29,14 @@ type fakeChecker struct {
 
 func (f *fakeChecker) Run(context.Context) (checks.Result, error) { return f.res, f.err }
 
+// noSecrets fails every secret lookup, so checks built after Sync never
+// reach a real API.
+type noSecrets struct{}
+
+func (noSecrets) Resolve(context.Context, *profile.ValueFrom) (string, error) {
+	return "", errors.New("no secrets in tests")
+}
+
 type recorder struct {
 	msgs []pitcher.Message
 	err  error
@@ -49,7 +57,7 @@ func setup(t *testing.T) (*Scheduler, *fakeChecker, *recorder, *time.Time) {
 		t.Fatal(err)
 	}
 	rec := &recorder{}
-	s, err := New(p, store.NewMemory(), rec, nil)
+	s, err := New(p, store.NewMemory(), rec, noSecrets{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,5 +172,66 @@ func TestDeliverAsFindings(t *testing.T) {
 	ok, _ := s.AllRan(ctx)
 	if !ok {
 		t.Fatal("AllRan = false although the only active check ran (tls is paused)")
+	}
+}
+
+func TestSync(t *testing.T) {
+	s, _, _, _ := setup(t)
+	ctx := context.Background()
+	p, _ := profile.Parse([]byte(testProfile))
+	extra, err := p.CompleteCheck(profile.Check{ID: "found", Type: profile.TypeTLSEndpoint, Target: "example.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if extra.Origin != profile.OriginDiscovered || extra.Target != "example.test:443" {
+		t.Fatalf("completed = %+v", extra)
+	}
+
+	if err := s.Sync(append(p.Spec.Checks, extra)); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(s.Checks()); got != 3 {
+		t.Fatalf("checks = %d", got)
+	}
+	if _, err := s.Run(ctx, "found"); err != nil && errors.Is(err, ErrUnknownCheck) {
+		t.Fatal("added check unknown")
+	}
+
+	// Removing it: unknown afterwards, other checks untouched.
+	if err := s.Sync(p.Spec.Checks); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Run(ctx, "found"); !errors.Is(err, ErrUnknownCheck) {
+		t.Fatalf("removed check still runs: %v", err)
+	}
+	sts, _ := s.Statuses(ctx)
+	if len(sts) != 2 || sts[0].Check.ID != "pat" {
+		t.Fatalf("statuses = %+v", sts)
+	}
+}
+
+func TestSyncWhileRunning(t *testing.T) {
+	s, fc, _, now := setup(t)
+	fc.res = checks.Result{Expiry: now.Add(100 * 24 * time.Hour)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ran := make(chan struct{}, 10)
+	s.DeliverAsFindings(func(context.Context) { ran <- struct{}{} })
+	s.Start(ctx)
+	<-ran // initial run of pat
+
+	p, _ := profile.Parse([]byte(testProfile))
+	changed := p.Spec.Checks
+	changed[0].Description = "changed"
+	if err := s.Sync(changed); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ran: // the changed check runs right away
+	case <-time.After(5 * time.Second):
+		t.Fatal("changed check did not run")
+	}
+	if s.Checks()[0].Description != "changed" {
+		t.Fatal("not replaced")
 	}
 }

@@ -13,6 +13,12 @@ spec:
     auth:
       tokenFrom:
         secretKeyRef: { name: schedule-pitcher-central, key: token }
+  # Every Secret labelled homerun2.sthings.io/watch-expiry=true in these
+  # namespaces becomes a github-token-expiry check.
+  discovery:
+    enabled: true
+    namespaces: [flux-system, tekton-ci, argocd, backstage, kargo, dapr-system, arc-systems]
+  # Explicit checks win over discovered ones with the same id.
   checks:
     - id: github-runner-pat
       type: github-token-expiry
