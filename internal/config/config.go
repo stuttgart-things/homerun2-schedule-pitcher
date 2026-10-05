@@ -41,6 +41,8 @@ func SetupLogging() {
 type Config struct {
 	ProfilePath string
 	Port        string
+	// AuthToken protects /api/*, POST /findings and the UI login.
+	AuthToken string
 	// PitchTarget is http (omni-pitcher from the profile), file or stdout.
 	PitchTarget string
 	PitchFile   string
@@ -62,6 +64,7 @@ func Load() Config {
 	return Config{
 		ProfilePath:   homerun.GetEnv("PROFILE_PATH", "/etc/homerun2-schedule-pitcher/profile.yaml"),
 		Port:          homerun.GetEnv("PORT", "8080"),
+		AuthToken:     homerun.GetEnv("AUTH_TOKEN", ""),
 		PitchTarget:   homerun.GetEnv("PITCH_TARGET", "http"),
 		PitchFile:     homerun.GetEnv("PITCH_FILE", "pitched.log"),
 		PitcherToken:  homerun.GetEnv("PITCHER_TOKEN", ""),

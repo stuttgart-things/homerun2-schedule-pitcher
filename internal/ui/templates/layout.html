@@ -1,0 +1,59 @@
+{{define "head"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{if .Title}}{{.Title}} · {{end}}Schedule Pitcher</title>
+<style>
+:root { --bg:#f6f7f9; --card:#fff; --fg:#1d2330; --muted:#667085; --line:#e4e7ec; --accent:#ff6600;
+  --ok:#12805c; --info:#2f6fde; --warning:#b77400; --error:#d1462f; --critical:#a3133d; --success:#12805c; }
+@media (prefers-color-scheme: dark) { :root { --bg:#12151b; --card:#1b2029; --fg:#e7eaf0; --muted:#98a2b3; --line:#2b3240;
+  --ok:#3ccf91; --info:#6ea2ff; --warning:#f2b347; --error:#ff7a63; --critical:#ff5c8a; --success:#3ccf91; } }
+* { box-sizing:border-box; }
+body { margin:0; font:15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--fg); }
+header { display:flex; align-items:center; gap:1rem; padding:.75rem 1rem; border-bottom:1px solid var(--line); background:var(--card); flex-wrap:wrap; }
+header .brand { font-weight:700; } header .brand span { color:var(--accent); }
+header nav { display:flex; gap:1rem; flex:1; } header nav a { color:var(--fg); text-decoration:none; } header nav a:hover { color:var(--accent); }
+header .who { color:var(--muted); font-size:.9rem; display:flex; gap:.5rem; align-items:center; }
+main { max-width:1200px; margin:0 auto; padding:1rem; }
+h1 { font-size:1.4rem; margin:.5rem 0 1rem; } h2 { font-size:1.1rem; margin:1.5rem 0 .5rem; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:1rem; margin-bottom:1rem; overflow-x:auto; }
+table { width:100%; border-collapse:collapse; } th, td { text-align:left; padding:.45rem .5rem; border-bottom:1px solid var(--line); vertical-align:top; }
+th { font-size:.8rem; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); font-weight:600; }
+tr:last-child td { border-bottom:0; }
+.muted { color:var(--muted); } .small { font-size:.85rem; } .nowrap { white-space:nowrap; }
+.pill { display:inline-block; padding:.05rem .5rem; border-radius:999px; font-size:.78rem; font-weight:600; border:1px solid currentColor; white-space:nowrap; }
+.b-ok, .b-success { color:var(--ok); } .b-info { color:var(--info); } .b-warning { color:var(--warning); }
+.b-error { color:var(--error); } .b-critical { color:var(--critical); } .b-unknown, .b-paused { color:var(--muted); }
+.stats { display:flex; gap:.75rem; flex-wrap:wrap; margin-bottom:1rem; }
+.stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:.6rem 1rem; min-width:7rem; }
+.stat b { display:block; font-size:1.5rem; }
+button, input { font:inherit; } input[type=text], input[type=password] { padding:.4rem .5rem; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
+button { padding:.35rem .8rem; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--fg); cursor:pointer; }
+button.primary { background:var(--accent); border-color:var(--accent); color:#fff; } button:hover { border-color:var(--accent); }
+form.inline { display:inline-flex; gap:.4rem; align-items:center; flex-wrap:wrap; margin:0; }
+.flash { padding:.6rem 1rem; border-radius:8px; margin-bottom:1rem; border:1px solid var(--ok); color:var(--ok); }
+.flash.err { border-color:var(--error); color:var(--error); }
+a { color:var(--info); } code { font-size:.85em; }
+dl { display:grid; grid-template-columns:max-content 1fr; gap:.3rem 1rem; margin:0; } dt { color:var(--muted); }
+pre { white-space:pre-wrap; margin:0; font:inherit; }
+footer { color:var(--muted); font-size:.8rem; text-align:center; padding:1.5rem; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">homerun<span>2</span> · schedule pitcher{{if .Title}} <span class="muted small">({{.Title}}, {{.Mode}})</span>{{end}}</div>
+  {{if .User}}<nav><a href="/ui/">Overview</a>{{if .HasFindings}}<a href="/ui/resolved">Resolved</a>{{end}}</nav>
+  <div class="who">{{.User}}<form method="post" action="/ui/logout" class="inline"><button>Log out</button></form></div>{{end}}
+</header>
+<main>
+{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+{{if .Error}}<div class="flash err">{{.Error}}</div>{{end}}
+{{end}}
+
+{{define "foot"}}
+</main>
+<footer>homerun2-schedule-pitcher {{.Version}}</footer>
+</body>
+</html>
+{{end}}

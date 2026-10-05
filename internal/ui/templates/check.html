@@ -1,0 +1,43 @@
+{{define "check.html"}}{{template "head" .}}
+{{$c := .Data.Status.Check}}{{$s := .Data.Status.State}}
+<p><a href="/ui/">← Overview</a></p>
+<h1>{{$c.ID}} {{if $s.Failing}}<span class="pill b-warning">could not check</span>{{else}}<span class="pill {{bandClass .Data.Status.Band}}">{{.Data.Status.Band}}</span>{{end}}</h1>
+<div class="card">
+<dl>
+  <dt>Type</dt><dd>{{$c.Type}}</dd>
+  <dt>Defined in</dt><dd>{{if eq $c.Origin "discovered"}}discovered Secret (read-only; change its labels/annotations){{else}}profile (read-only; change it in Git){{end}}</dd>
+  {{if $c.Description}}<dt>Description</dt><dd>{{$c.Description}}</dd>{{end}}
+  {{if $c.Target}}<dt>Target</dt><dd>{{$c.Target}}</dd>{{end}}
+  {{with $c.TokenFrom}}{{with .SecretKeyRef}}<dt>Token</dt><dd>Secret {{.Namespace}}/{{.Name}}, key {{.Key}}</dd>{{end}}{{end}}
+  <dt>Thresholds</dt><dd>warning {{$c.Thresholds.Warning}}, error {{$c.Thresholds.Error}}, critical {{$c.Thresholds.Critical}}</dd>
+  <dt>Schedule</dt><dd><code>{{$c.Schedule}}</code>, remind <code>{{$c.Remind}}</code></dd>
+  {{if $c.Tags}}<dt>Tags</dt><dd>{{range $i, $t := $c.Tags}}{{if $i}}, {{end}}{{$t}}{{end}}</dd>{{end}}
+  {{if $c.Assignee}}<dt>Assignee</dt><dd>{{$c.Assignee}}</dd>{{end}}
+  {{if $c.URL}}<dt>Runbook</dt><dd><a href="{{$c.URL}}" target="_blank" rel="noopener">{{$c.URL}}</a></dd>{{end}}
+  <dt>Expiry</dt><dd>{{if isZero $s.Expiry}}–{{else}}{{when $s.Expiry}} ({{until $s.Expiry}}){{end}}</dd>
+  {{if $s.Subject}}<dt>Subject</dt><dd>{{$s.Subject}}</dd>{{end}}
+  {{if $s.Problem}}<dt>Problem</dt><dd class="b-error">{{$s.Problem}}</dd>{{end}}
+  <dt>Result</dt><dd>{{if $s.Failing}}<span class="b-warning">{{$s.LastError}}</span> <span class="muted small">(failing since {{when $s.FailingSince}})</span>{{else}}{{$s.Summary}}{{end}}</dd>
+  <dt>Last run</dt><dd>{{when $s.LastRun}}{{if not (isZero $s.LastOK)}} <span class="muted small">(last ok run {{when $s.LastOK}})</span>{{end}}</dd>
+  <dt>Next run</dt><dd>{{with .Data.Status.NextRun}}{{when .}}{{else}}–{{end}}</dd>
+</dl>
+{{if not $c.Paused}}<p><form method="post" action="/ui/checks/{{pathEscape $c.ID}}/run" class="inline"><button class="primary">Run now</button></form></p>{{end}}
+</div>
+
+<h2>History</h2>
+<div class="card">
+{{if .Data.History}}
+<table>
+<tr><th>When</th><th>Band</th><th>Result</th><th>Pitched</th></tr>
+{{range .Data.History}}
+<tr>
+  <td class="small">{{when .At}}</td>
+  <td>{{if .Failing}}<span class="pill b-warning">could not check</span>{{else}}<span class="pill {{bandClass .Band.String}}">{{.Band}}</span>{{end}}</td>
+  <td class="small">{{if .Failing}}{{.Error}}{{else}}{{if .Problem}}{{.Problem}}<br>{{end}}{{.Summary}}{{end}}</td>
+  <td class="small">{{range $i, $p := .Pitched}}{{if $i}}, {{end}}{{$p}}{{end}}</td>
+</tr>
+{{end}}
+</table>
+{{else}}<p class="muted">No runs yet.</p>{{end}}
+</div>
+{{template "foot" .}}{{end}}

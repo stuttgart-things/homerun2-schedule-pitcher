@@ -1,0 +1,74 @@
+{{define "dashboard.html"}}{{template "head" .}}
+{{$d := .Data}}
+<h1>Overview</h1>
+<div class="stats">
+  {{if .HasFindings}}
+  <div class="stat"><span class="muted small">Open findings</span><b>{{len $d.Open}}</b></div>
+  <div class="stat"><span class="muted small">Acknowledged</span><b>{{len $d.Acknowledged}}</b></div>
+  {{range $sev := (list "critical" "error" "warning" "info")}}{{with index $d.Counts $sev}}<div class="stat"><span class="pill {{bandClass $sev}}">{{$sev}}</span><b>{{.}}</b></div>{{end}}{{end}}
+  {{end}}
+  <div class="stat"><span class="muted small">Checks</span><b>{{len $d.Checks}}</b></div>
+  <div class="stat"><span class="muted small">Checks not ok</span><b>{{$d.ChecksBad}}</b></div>
+</div>
+
+{{if .HasFindings}}
+<h2>Open findings</h2>
+<div class="card">
+{{if $d.FindingsErr}}<p class="b-error">{{$d.FindingsErr}}</p>{{end}}
+{{if $d.Open}}
+<table>
+<tr><th>Severity</th><th>Finding</th><th>Host</th><th>Source</th><th>Open for</th><th></th></tr>
+{{range $d.Open}}
+<tr>
+  <td><span class="pill {{bandClass .Severity}}">{{.Severity}}</span></td>
+  <td>{{if .URL}}<a href="{{.URL}}" target="_blank" rel="noopener">{{.Title}}</a>{{else}}{{.Title}}{{end}}
+    {{if .Message}}<div class="muted small"><pre>{{.Message}}</pre></div>{{end}}
+    {{if .AckExpiredAt.IsZero | not}}<div class="small b-warning">acknowledgement by {{.AckBy}} expired</div>{{end}}</td>
+  <td class="small">{{.Host}}</td>
+  <td class="small">{{.Source}}</td>
+  <td class="small nowrap">{{age .OpenSince}}</td>
+  <td><form method="post" action="/ui/findings/ack" class="inline">
+    <input type="hidden" name="source" value="{{.Source}}"><input type="hidden" name="key" value="{{.Key}}">
+    <input type="text" name="note" placeholder="note" maxlength="500" size="12"><button>Acknowledge</button></form></td>
+</tr>
+{{end}}
+</table>
+{{else}}<p class="muted">Nothing open.</p>{{end}}
+</div>
+
+{{if $d.Acknowledged}}
+<h2>Acknowledged</h2>
+<div class="card"><table>
+<tr><th>Severity</th><th>Finding</th><th>Host</th><th>Source</th><th>Open for</th><th>Acknowledged</th></tr>
+{{range $d.Acknowledged}}
+<tr>
+  <td><span class="pill {{bandClass .Severity}}">{{.Severity}}</span></td>
+  <td>{{if .URL}}<a href="{{.URL}}" target="_blank" rel="noopener">{{.Title}}</a>{{else}}{{.Title}}{{end}}</td>
+  <td class="small">{{.Host}}</td><td class="small">{{.Source}}</td><td class="small">{{age .OpenSince}}</td>
+  <td class="small">{{.AckBy}}, {{age .AckAt}} ago{{if .AckNote}}: {{.AckNote}}{{end}}</td>
+</tr>
+{{end}}
+</table></div>
+{{end}}
+{{end}}
+
+<h2>Checks</h2>
+<div class="card">
+{{if $d.Checks}}
+<table>
+<tr><th>Band</th><th>Check</th><th>Expiry</th><th>Result</th><th>Last run</th><th>Next run</th><th></th></tr>
+{{range $d.Checks}}
+<tr>
+  <td>{{if .Check.Paused}}<span class="pill b-paused">paused</span>{{else if .State.Failing}}<span class="pill b-warning">could not check</span>{{else}}<span class="pill {{bandClass .Band}}">{{.Band}}</span>{{end}}</td>
+  <td><a href="/ui/checks/{{pathEscape .Check.ID}}">{{.Check.ID}}</a><div class="muted small">{{.Check.Type}} · {{.Check.Origin}}</div></td>
+  <td class="small nowrap">{{if isZero .State.Expiry}}–{{else}}{{date .State.Expiry}}<div class="muted">{{until .State.Expiry}}</div>{{end}}</td>
+  <td class="small">{{if .State.Failing}}{{.State.LastError}}{{else}}{{if .State.Problem}}{{.State.Problem}}<br>{{end}}{{.State.Summary}}{{end}}</td>
+  <td class="small nowrap">{{when .State.LastRun}}</td>
+  <td class="small nowrap">{{if .NextRun}}{{when .NextRun}}{{else}}–{{end}}</td>
+  <td>{{if not .Check.Paused}}<form method="post" action="/ui/checks/{{pathEscape .Check.ID}}/run" class="inline"><input type="hidden" name="back" value="dashboard"><button>Run now</button></form>{{end}}</td>
+</tr>
+{{end}}
+</table>
+{{else}}<p class="muted">No checks configured.</p>{{end}}
+</div>
+{{template "foot" .}}{{end}}

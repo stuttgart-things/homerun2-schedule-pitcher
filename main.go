@@ -39,6 +39,7 @@ import (
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/scheduler"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/secrets"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/store"
+	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/ui"
 )
 
 var (
@@ -155,6 +156,16 @@ func serve(cfg config.Config, args []string) error {
 		reporter.Sender = report.Local{Service: fsvc}
 	}
 	sched.DeliverAsFindings(reporter.AfterRun)
+
+	var uiFindings ui.Findings
+	mode := "agent"
+	if fsvc != nil {
+		uiFindings, mode = fsvc, "central"
+	}
+	ui.New(sched, uiFindings, ui.NewSessions(cfg.AuthToken), prof.Metadata.Name, version, mode, prof.Location()).Register(mux)
+	if cfg.AuthToken == "" {
+		slog.Warn("AUTH_TOKEN is not set: the API rejects every request and the UI login is disabled")
+	}
 
 	disc, err := buildDiscoverer(prof)
 	if err != nil {
