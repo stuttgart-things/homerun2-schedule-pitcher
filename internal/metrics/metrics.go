@@ -3,6 +3,7 @@ package metrics
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/state"
 )
@@ -35,7 +36,7 @@ var Registry = prometheus.NewRegistry()
 
 func init() {
 	Registry.MustRegister(lastRun, checkStatus, checkFailing, expiry, pitches,
-		prometheus.NewGoCollector(), prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
+		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 }
 
 // ObserveState records the state of a check after a run.
