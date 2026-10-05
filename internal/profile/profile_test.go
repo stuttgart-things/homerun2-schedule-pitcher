@@ -70,6 +70,9 @@ spec:
 	if c.Timeout.D() != DefaultTimeout {
 		t.Errorf("timeout = %v", c.Timeout)
 	}
+	if f := p.Spec.Findings; *f.OfficeHours.Start != 8 || *f.OfficeHours.End != 18 || f.AckExpiry.D() != 3*day || f.Retention.D() != 7*day {
+		t.Errorf("findings defaults = %+v", f)
+	}
 	if p.Spec.Defaults.System != DefaultSystem {
 		t.Errorf("system = %q", p.Spec.Defaults.System)
 	}
@@ -130,6 +133,7 @@ func TestParseErrors(t *testing.T) {
 		{"threshold order", head + "spec:\n  checks:\n    - {id: a, type: tls-endpoint, target: 'a:1', thresholds: {warning: 1d, error: 7d}}\n", "warning >= error >= critical"},
 		{"bad duration", head + "spec:\n  checks:\n    - {id: a, type: tls-endpoint, target: 'a:1', thresholds: {warning: soon}}\n", "invalid duration"},
 		{"bad timezone", head + "spec:\n  defaults: { timezone: Mars/Base }\n", "timezone"},
+		{"office hours", head + "spec:\n  findings: { officeHours: { start: 18, end: 8 } }\n", "officeHours"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -25,6 +25,11 @@ const (
 	DefaultRemind   = "0 8 * * *"
 	DefaultSystem   = "homerun2-schedule-pitcher"
 	DefaultTimeout  = 10 * time.Second
+
+	DefaultOfficeStart = 8
+	DefaultOfficeEnd   = 18
+	DefaultAckExpiry   = 3 * 24 * time.Hour
+	DefaultRetention   = 7 * 24 * time.Hour
 )
 
 var DefaultThresholds = Thresholds{
@@ -106,6 +111,22 @@ func applyDefaults(p *SchedulePitcherProfile) {
 	if s.Redis.Addr != "" && s.Redis.Port == "" {
 		s.Redis.Port = "6379"
 	}
+	fc := &s.Findings
+	if fc.OfficeHours.Start == nil {
+		v := DefaultOfficeStart
+		fc.OfficeHours.Start = &v
+	}
+	if fc.OfficeHours.End == nil {
+		v := DefaultOfficeEnd
+		fc.OfficeHours.End = &v
+	}
+	if fc.AckExpiry == 0 {
+		fc.AckExpiry = Duration(DefaultAckExpiry)
+	}
+	if fc.Retention == 0 {
+		fc.Retention = Duration(DefaultRetention)
+	}
+
 	d := &s.Defaults
 	if d.Schedule == "" {
 		d.Schedule = DefaultSchedule
@@ -206,6 +227,9 @@ func validate(p *SchedulePitcherProfile) error {
 	}
 	if _, err := time.LoadLocation(s.Defaults.Timezone); err != nil {
 		add("spec.defaults.timezone: %v", err)
+	}
+	if oh := s.Findings.OfficeHours; *oh.Start < 0 || *oh.End > 23 || *oh.Start+1 >= *oh.End {
+		add("spec.findings.officeHours: need 0 <= start < end <= 23 with at least one hour between (got %d-%d)", *oh.Start, *oh.End)
 	}
 
 	seen := map[string]bool{}

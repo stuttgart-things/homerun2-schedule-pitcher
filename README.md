@@ -7,9 +7,9 @@ homerun2 pitcher that runs scheduled checks (token & certificate expiry, probes)
 > Implemented so far: the scheduler core with the checks `github-token-expiry`
 > and `tls-endpoint`, the state machine, delivery to omni-pitcher (`grafana` and
 > `generic` format), state and history in Redis (or in memory without Redis),
-> `/health`, `/ready`, `/metrics` and a small JSON API. Still to come (MVP 2 in
-> #1): findings from other jobs, office-hours delivery, reminders, multi-cluster
-> secret access, the web UI, CI workflows and KCL manifests.
+> `/health`, `/ready`, `/metrics`, a small JSON API, and findings from other jobs
+> with office-hours delivery. Still to come (MVP 2 in #1): reminders,
+> multi-cluster secret access, the web UI, CI workflows and KCL manifests.
 
 ## How it works
 
@@ -91,6 +91,66 @@ Per check, `schedule`, `remind`, `thresholds` (field by field), `assignee` and
 `apiURL` (GitHub Enterprise), `serverName` (TLS SNI / name to verify).
 Unknown fields are rejected. See [`profiles/`](profiles/) for examples.
 
+## Findings from other jobs
+
+Jobs that already run somewhere (a cron job on a VM, an Ansible run, a
+Kubernetes CronJob) report what they found with `POST /findings`. Each call
+carries the **complete current set** of findings of one `source`:
+
+- a key missing from the next call is **resolved** automatically, so a job
+  never has to report "ok";
+- a key that comes back within the retention (7 days) **reopens** the old
+  finding (first seen, history and acknowledgement note are kept);
+- an empty `findings` list resolves everything of that source.
+
+```bash
+#!/bin/sh
+# cron job on a VM: report every filesystem above 70 %
+FINDINGS=$(df -P -x tmpfs -x devtmpfs | awk -v host="$(hostname -f)" 'NR > 1 {
+  pct = $5; sub("%", "", pct); pct += 0
+  if (pct < 70) next
+  sev = pct >= 95 ? "critical" : (pct >= 85 ? "warning" : "info")
+  printf "%s{\"key\":\"%s/disk:%s\",\"title\":\"%s at %d%%\",\"severity\":\"%s\",\"value\":%d,\"threshold\":70,\"host\":\"%s\",\"tags\":[\"disk\"]}",
+    n++ ? "," : "", host, $6, $6, pct, sev, pct, host }')
+
+curl -sf -X POST https://schedule-pitcher.example/findings \
+  -H "Authorization: Bearer $SCHEDULE_PITCHER_TOKEN" \
+  -d "{\"source\":\"disk-$(hostname -s)\",\"run\":\"$(date +%Y%m%d%H%M)\",\"findings\":[$FINDINGS]}"
+```
+
+Fields per finding: `key` (stable across runs, e.g. `<host>/<check>[:<detail>]`),
+`title`, `severity` (`info`, `warning`, `error`, `critical`), and optionally
+`message`, `value`, `threshold`, `host`, `tags`, `url`. Use one `source` per
+job and host, since a call replaces the whole set of its source.
+
+Delivery, every day in `spec.defaults.timezone` (office hours 08–18 by
+default, `spec.findings.officeHours`):
+
+| When | What |
+|---|---|
+| immediately | `critical` (any time), new or worse `error` (inside office hours) |
+| hourly 09:00–17:00 | one message with what is new, reopened, worse, acknowledgement expired or resolved since the last one; nothing new means no message |
+| 08:00 | start of day: everything open, oldest first with age, and what the night brought or resolved |
+| 18:00 | end of day: resolved today, still open |
+
+A summary that could not be delivered is sent at the next tick (start of day
+until the end of office hours, end of day until midnight).
+
+**Acknowledge** = someone is on it: `POST /api/findings/ack` with
+`{"source": "...", "key": "...", "by": "patrick.hermann", "note": "cleanup running"}`.
+The finding stays in the summaries, marked as acknowledged. After
+`spec.findings.ackExpiry` (default 3 days) without being resolved it is open
+again and re-surfaces in the next update. Resolved findings are deleted after
+`spec.findings.retention` (default 7 days).
+
+```yaml
+spec:
+  findings:
+    officeHours: { start: 8, end: 18 }
+    ackExpiry: 3d
+    retention: 7d
+```
+
 ## Commands
 
 ```bash
@@ -112,6 +172,9 @@ homerun2-schedule-pitcher run --profile profile.yaml [--dry-run] [--check <id>]
 | `/api/checks` | `GET` | Bearer | All checks with band, expiry, last result, next run |
 | `/api/checks/{id}/run` | `POST` | Bearer | Run a check now; returns its new state |
 | `/api/checks/{id}/history?limit=N` | `GET` | Bearer | Last runs of a check, newest first (default 20, max 100) |
+| `/findings` | `POST` | Bearer | Report the complete current findings of one source |
+| `/api/findings?status=&source=` | `GET` | Bearer | Findings, worst first; `status` is `open` (incl. acknowledged), `acknowledged` or `resolved` |
+| `/api/findings/ack` | `POST` | Bearer | Acknowledge a finding |
 
 ### State in Redis
 
@@ -125,6 +188,13 @@ pitches a check that is not ok once more after a restart. Keys (prefix
 | `…:check:<id>:state` | hash | band, expiry, summary, problem, failing, last error, what was pitched when (`redis-cli HGETALL`) |
 | `…:check:<id>:history` | stream | last 100 runs, one JSON `entry` each |
 | `…:lock:<id>` | string + TTL | run lock with an owner token, so two replicas never run the same check at once |
+| `…:finding:<source>:<key>` | hash | one finding: JSON `doc` plus flat `source`, `key`, `status`, `severity`, `host`, `tags`, `first_seen`, `last_seen`, `resolved_at` |
+| `…:findings` | set | keys of all findings |
+| `…:findings:delivery` | string | when the last update and summaries were sent |
+
+The flat finding fields are laid out for RediSearch, so an index can be added
+over the existing data without migration, e.g.
+`FT.CREATE findings-v1 ON HASH PREFIX 1 homerun2-schedule-pitcher:finding: SCHEMA source TAG status TAG severity TAG host TAG first_seen NUMERIC SORTABLE`.
 
 Metrics: `schedule_pitcher_check_last_run_timestamp_seconds{check}`,
 `schedule_pitcher_check_status{check}` (0 ok … 3 critical, -1 unknown),

@@ -10,8 +10,9 @@ MVP in progress. The design lives in issue #1; implement against it and keep
 it updated when decisions change. Done: scheduler core (#8) with profile
 loader, `github-token-expiry` and `tls-endpoint` checks, state machine,
 omni-pitcher delivery (`grafana` / `generic`), `/api/checks`; Redis store with
-history and locks (#10). Next (MVP 2 in #1): findings ingest + office-hours
-delivery, reminders, multi-cluster secrets, web UI, CI workflows + KCL. The
+history and locks (#10); findings ingest with office-hours delivery and
+acknowledge (#14). Next (MVP 2 in #1): reminders, checks through office-hours
+delivery, multi-cluster secrets, web UI, CI workflows + KCL. The
 instance runs on platform and uses the homerun2 `redis-stack`. The Dagger module in
 `dagger/` still holds the scaffold's integration test and needs updating with
 the CI task.
@@ -26,6 +27,8 @@ the CI task.
 - `internal/pitcher`: rendering and delivery (HTTP grafana/generic, file, stdout)
 - `internal/store`: `Store` interface, `Memory` (no-Redis mode), `Redis`; one
   contract test runs against both (miniredis)
+- `internal/findings`: `POST /findings` model and `Apply` (pure), `Build` of
+  office-hours messages (pure), `Service` (ingest, ack, hourly `Tick`), stores
 
 ## Tech Stack
 
