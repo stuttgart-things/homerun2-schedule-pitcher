@@ -1,0 +1,38 @@
+apiVersion: homerun2.sthings.io/v1alpha1
+kind: SchedulePitcherProfile
+metadata:
+  name: machinery
+spec:
+  pitcher:
+    addr: https://omni.platform.sthings-vsphere.labul.sva.de/pitch/grafana
+    format: grafana
+    caFile: /etc/ssl/vault-pki-ca/ca.crt
+    auth:
+      tokenFrom:
+        secretKeyRef:
+          name: omni-pitcher-labul-platform
+          namespace: crossplane-system
+          key: token
+  defaults:
+    schedule: "0 */6 * * *"
+    timezone: Europe/Berlin
+    remind: "0 8 * * *"
+    thresholds: { warning: 30d, error: 7d, critical: 1d }
+    tags: [expiry]
+  checks:
+    - id: github-runner-pat
+      type: github-token-expiry
+      description: Fine-grained PAT used by ARC runners
+      tokenFrom:
+        secretKeyRef:
+          name: github-runner-token
+          namespace: tekton-ci
+          key: GITHUB_TOKEN
+      thresholds: { warning: 30d, error: 14d, critical: 3d }
+      url: https://github.com/settings/personal-access-tokens
+      assignee: platform-team
+      tags: [pat, runner]
+    - id: omni-platform-tls
+      type: tls-endpoint
+      target: omni.platform.sthings-vsphere.labul.sva.de
+      chain: true

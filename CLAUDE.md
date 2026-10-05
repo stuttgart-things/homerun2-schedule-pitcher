@@ -6,17 +6,29 @@ homerun2-schedule-pitcher — homerun2 pitcher that runs scheduled checks (token
 
 ## Status
 
-Design phase. The design lives in issue #1; implement against it and keep it
-updated when decisions change. The current code is the rendered
-`homerun2-service` scaffold (pitcher), not the schedule-pitcher yet. CI
-workflows from the scaffold are not committed yet; add them with the first
-real code.
+MVP in progress. The design lives in issue #1; implement against it and keep
+it updated when decisions change. Done: scheduler core (#8) with profile
+loader, `github-token-expiry` and `tls-endpoint` checks, state machine,
+omni-pitcher delivery (`grafana` / `generic`), in-memory state, `/api/checks`.
+Next: Redis store, reminders, web UI, CI workflows + KCL. The Dagger module in
+`dagger/` still holds the scaffold's integration test and needs updating with
+the CI task.
+
+## Layout
+
+- `main.go`: `serve` (scheduler + HTTP) and `run` (one pass, `--dry-run`)
+- `internal/profile`: `SchedulePitcherProfile` types, defaults, validation
+- `internal/checks`: one file per check type, `Result` / error = could not check
+- `internal/state`: bands and the pitch decision (pure, unit-tested)
+- `internal/scheduler`: cron, locks, runs checks, pitches, stores state
+- `internal/pitcher`: rendering and delivery (HTTP grafana/generic, file, stdout)
+- `internal/store`: `Store` interface, `Memory` (no-Redis mode)
 
 ## Tech Stack
 
-- **Language**: Go 1.25+
+- **Language**: Go 1.26+
 - **HTTP**: stdlib `net/http` (no framework)
-- **Queue**: Redis Streams via `homerun-library`
+- **Delivery**: HTTP to omni-pitcher; `homerun-library/v4` for the message model
 - **Build**: ko (`.ko.yaml`), no Dockerfile
 - **CI**: Dagger modules (`dagger/main.go`), Taskfile
 - **Infra**: GitHub Actions, semantic-release, renovate
