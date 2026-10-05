@@ -1,0 +1,31 @@
+---
+# Agent on a watched cluster (machinery): CronJob, reads the runner token by
+# name and discovers labelled Secrets in flux-system and tekton-ci.
+config.mode: agent
+config.name: homerun2-schedule-pitcher-agent
+config.image: ghcr.io/stuttgart-things/homerun2-schedule-pitcher:main
+config.namespace: homerun2-agent
+config.reportToken: changeme
+config.agentKind: cronjob
+config.agentSchedule: "15 */6 * * *"
+config.trustBundleConfigMap: cluster-trust-bundle
+config.secretAccess:
+  - namespace: tekton-ci
+    secretNames: [github-runner-token]
+config.discoveryNamespaces: [flux-system, tekton-ci]
+config.profileYaml: |
+  apiVersion: homerun2.sthings.io/v1alpha1
+  kind: SchedulePitcherProfile
+  metadata:
+    name: machinery
+  spec:
+    report:
+      addr: https://homerun2-schedule-pitcher.example.com/findings
+    discovery:
+      enabled: true
+      namespaces: [flux-system, tekton-ci]
+    checks:
+      - id: github-runner-pat
+        type: github-token-expiry
+        tokenFrom:
+          secretKeyRef: {name: github-runner-token, namespace: tekton-ci, key: GITHUB_TOKEN}

@@ -1,0 +1,29 @@
+---
+# Central instance on platform (release kustomize artefact).
+config.mode: central
+config.image: ghcr.io/stuttgart-things/homerun2-schedule-pitcher:main
+config.namespace: homerun2
+config.authToken: changeme
+config.redisPassword: changeme # pragma: allowlist secret
+config.pitcherToken: changeme
+config.trustBundleConfigMap: cluster-trust-bundle
+config.httpRouteEnabled: true
+config.httpRouteParentRefName: homerun2-dev-gateway
+config.httpRouteParentRefNamespace: default
+config.httpRouteHostname: homerun2-schedule-pitcher.example.com
+config.profileYaml: |
+  apiVersion: homerun2.sthings.io/v1alpha1
+  kind: SchedulePitcherProfile
+  metadata:
+    name: platform
+  spec:
+    pitcher:
+      addr: http://homerun2-omni-pitcher.homerun2.svc.cluster.local/pitch/grafana
+      format: grafana
+    defaults:
+      assignee: patrick.hermann
+    checks:
+      - id: omni-platform-tls
+        type: tls-endpoint
+        target: omni.platform.sthings-vsphere.labul.sva.de
+        chain: true

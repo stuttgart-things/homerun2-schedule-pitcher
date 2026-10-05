@@ -1,0 +1,23 @@
+---
+name: Release
+on:
+  workflow_run:
+    workflows: ["Build, Push & Scan Container Image"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  release:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-go-release.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      stage-image: true
+      push-kustomize: true
+      kcl-source-dir: kcl
+      kcl-profile-file: tests/kcl-deploy-profile.yaml
+      kustomize-oci-repo: ghcr.io/stuttgart-things/homerun2-schedule-pitcher-kustomize
+    secrets: inherit # pragma: allowlist secret

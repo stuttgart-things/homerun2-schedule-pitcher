@@ -8,8 +8,8 @@ homerun2 pitcher that runs scheduled checks (token & certificate expiry, probes)
 > and `tls-endpoint`, the state machine, delivery to omni-pitcher (`grafana` and
 > `generic` format), state and history in Redis (or in memory without Redis),
 > `/health`, `/ready`, `/metrics`, a small JSON API, and findings from other jobs
-> with office-hours delivery. Still to come (MVP 2 in #1): reminders,
-> multi-cluster secret access, the web UI, CI workflows and KCL manifests.
+> with office-hours delivery, agents with discovery, CI workflows and KCL
+> manifests. Still to come (MVP 2 in #1): the web UI and reminders.
 
 ## How it works
 
@@ -310,9 +310,15 @@ task lint
 task build-scan-image-ko
 ```
 
-The image is built with ko (`.ko.yaml`), there is no Dockerfile. The
-scaffold's GitHub Actions workflows are not committed yet; they come with
-the CI task of the MVP in #1.
+The image is built with ko (`.ko.yaml`), there is no Dockerfile. Manifests
+for the central instance and the agents come from the KCL module in
+[`kcl/`](kcl/README.md); see [docs/deployment.md](docs/deployment.md) and
+[docs/cicd.md](docs/cicd.md).
+
+```bash
+task render-central   # KCL -> /tmp/schedule-pitcher-central.yaml
+task render-agent     # KCL -> /tmp/schedule-pitcher-agent.yaml
+```
 
 ## Links
 
