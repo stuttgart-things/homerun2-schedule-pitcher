@@ -36,7 +36,7 @@ func RequestLogging(next http.Handler) http.Handler {
 		rec := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 		next.ServeHTTP(rec, r)
 
-		if r.URL.Path == "/health" && !logHealthChecks {
+		if isProbe(r.URL.Path) && !logHealthChecks {
 			return
 		}
 
@@ -62,4 +62,10 @@ func generateRequestID() string {
 	b := make([]byte, 8)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// isProbe reports health, readiness and metrics scrapes, which are not logged
+// unless LOG_HEALTH_CHECKS=true.
+func isProbe(path string) bool {
+	return path == "/health" || path == "/ready" || path == "/metrics"
 }

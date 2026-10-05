@@ -2,104 +2,149 @@
 
 homerun2 pitcher that runs scheduled checks (token & certificate expiry, probes) and user-defined reminders, and pitches the results into homerun2
 
-> **Status: design phase.** Nothing here runs scheduled checks yet. The design
-> (check types, reminders, web UI, config/storage, delivery and deployment) is
-> tracked in the design issue:
+> **Status: MVP in progress.** The design is tracked in
 > [#1 Design: homerun2-schedule-pitcher](https://github.com/stuttgart-things/homerun2-schedule-pitcher/issues/1).
+> Implemented so far: the scheduler core with the checks `github-token-expiry`
+> and `tls-endpoint`, the state machine, delivery to omni-pitcher (`grafana` and
+> `generic` format), `/health`, `/ready`, `/metrics` and a small JSON API.
+> State is kept in memory (the no-Redis mode). Still to come: Redis state,
+> reminders, the web UI, CI workflows and KCL manifests.
 
-The code in this repository is the output of the Backstage
-scaffolder template `homerun2-service` (service type `pitcher`), rendered for
-this repo (plus `go mod tidy`, `gofmt`, and the empty catcher-only stub
-packages dropped). It is a generic "HTTP `POST /pitch` -> Redis Streams" pitcher and
-builds (`go build .`; `dagger/` is the Dagger module and is
-built by `dagger`, as in the sibling repos), but it is only the starting point: the scheduler,
-the check types, reminders and the UI described in #1 do not exist yet.
+## How it works
 
-The scaffold's GitHub Actions workflows are intentionally **not** committed yet
-(see #1): they would run Dagger lint/build and semantic-release against a
-service that is not implemented. They will be added together with the first
-real code.
+The service reads a `SchedulePitcherProfile` (usually a mounted ConfigMap),
+runs every check at startup and then on its `schedule`, and pitches to
+omni-pitcher when the state of a check changes:
 
-The sections below describe the scaffold as generated.
+| Situation | Pitch |
+|---|---|
+| Check enters a band (`warning` / `error` / `critical`) or changes band | immediately, with that severity |
+| Check stays in a bad band | again at most once per `remind` cadence (default daily 08:00 Europe/Berlin) |
+| Check is ok again (for example a token was rotated) | once, `success` / Grafana `resolved` |
+| Check could not complete (network error, 5xx, missing Secret) | separate `warning` "Could not check …", rate-limited like reminders, never reported as an expiry |
+| Token without expiry date | `info`, once |
+
+Bands come from the time left until expiry: at or below `thresholds.warning`
+(default `30d`) is warning, `error` (`7d`) is error, `critical` (`1d`) or
+expired is critical. A check can also raise the band itself: a token GitHub
+rejects (`401`) is critical, a certificate that is not trusted or not valid for
+the host name is error.
+
+### Checks
+
+| Type | What it does |
+|---|---|
+| `github-token-expiry` | `GET /rate_limit` with the token and reads the `github-authentication-token-expiration` header. `401` means expired or revoked. `GET /user` adds the token owner (`owner: false` turns that off). The token is read again on every run, so a rotated Secret is picked up. |
+| `tls-endpoint` | TLS dial to `target` (`host[:port]`, port defaults to 443) with SNI, reads the leaf `NotAfter`, or the earliest `NotAfter` of the presented chain with `chain: true`. Trust and host name are verified against the system roots plus `caFile`. An expired certificate is still read and reported. |
+
+### Profile
+
+```yaml
+apiVersion: homerun2.sthings.io/v1alpha1
+kind: SchedulePitcherProfile
+metadata:
+  name: machinery
+spec:
+  pitcher:
+    addr: https://omni.platform.sthings-vsphere.labul.sva.de/pitch/grafana
+    format: grafana            # grafana (POST /pitch/grafana) | generic (POST /pitch)
+    caFile: /etc/ssl/vault-pki-ca/ca.crt
+    auth:
+      tokenFrom:
+        secretKeyRef: { name: omni-pitcher-labul-platform, namespace: crossplane-system, key: token }
+  defaults:
+    schedule: "0 */6 * * *"    # cron or @every 6h
+    timezone: Europe/Berlin
+    remind: "0 8 * * *"
+    thresholds: { warning: 30d, error: 7d, critical: 1d }
+    system: homerun2-schedule-pitcher
+    tags: [expiry]
+  checks:
+    - id: github-runner-pat
+      type: github-token-expiry
+      description: Fine-grained PAT used by ARC runners
+      tokenFrom:
+        secretKeyRef: { name: github-runner-token, namespace: tekton-ci, key: GITHUB_TOKEN }
+      thresholds: { warning: 30d, error: 14d, critical: 3d }
+      url: https://github.com/settings/personal-access-tokens
+      assignee: platform-team
+    - id: omni-platform-tls
+      type: tls-endpoint
+      target: omni.platform.sthings-vsphere.labul.sva.de
+      caFile: /etc/ssl/vault-pki-ca/ca.crt
+      chain: true
+```
+
+Secret values (`tokenFrom`, `passwordFrom`) take exactly one of
+`secretKeyRef` (read through the Kubernetes API, in-cluster or `KUBECONFIG`;
+a missing namespace means the pod's own), `env` or `file`.
+
+Per check, `schedule`, `remind`, `thresholds` (field by field) and `tags`
+(added to the default tags) override `spec.defaults`. Further fields:
+`description`, `url`, `assignee`, `paused`, `timeout` (default `10s`),
+`apiURL` (GitHub Enterprise), `serverName` (TLS SNI / name to verify).
+Unknown fields are rejected. See [`profiles/`](profiles/) for examples.
+
+## Commands
+
+```bash
+# Scheduler + HTTP API (default command)
+homerun2-schedule-pitcher serve --profile /etc/homerun2-schedule-pitcher/profile.yaml
+
+# One pass, no state: pitches everything that is not ok, then exits.
+# For CI or a ScheduledRun. --dry-run prints the messages instead.
+homerun2-schedule-pitcher run --profile profile.yaml [--dry-run] [--check <id>]
+```
 
 ## API Endpoints
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `/health` | `GET` | None | Health check (returns version, commit, date) |
-| `/pitch` | `POST` | Bearer token | Submit a message to Redis Streams |
+| `/health` | `GET` | None | Liveness (version, commit, date) |
+| `/ready` | `GET` | None | `200` once the scheduler runs |
+| `/metrics` | `GET` | None | Prometheus metrics |
+| `/api/checks` | `GET` | Bearer | All checks with band, expiry, last result, next run |
+| `/api/checks/{id}/run` | `POST` | Bearer | Run a check now; returns its new state |
 
-<details>
-<summary><b>Pitch a message</b></summary>
+Metrics: `schedule_pitcher_check_last_run_timestamp_seconds{check}`,
+`schedule_pitcher_check_status{check}` (0 ok … 3 critical, -1 unknown),
+`schedule_pitcher_check_failing{check}`,
+`schedule_pitcher_check_expiry_seconds{check}`,
+`schedule_pitcher_pitch_total{result}`.
 
-```bash
-curl -X POST http://localhost:8080/pitch \
-  -H "Authorization: Bearer <YOUR_AUTH_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Test Notification",
-    "message": "Hello from homerun2-schedule-pitcher",
-    "severity": "info",
-    "author": "test"
-  }'
-```
-
-</details>
-
-## Deployment
-
-<details>
-<summary><b>Container image (ko / ghcr.io)</b></summary>
-
-```bash
-docker pull ghcr.io/stuttgart-things/homerun2-schedule-pitcher:<tag>
-
-docker run \
-  -e REDIS_ADDR=redis -e REDIS_PORT=6379 \
-  -e REDIS_STREAM=messages \
-  -e AUTH_TOKEN=mysecret \
-  -p 8080:8080 \
-  ghcr.io/stuttgart-things/homerun2-schedule-pitcher:<tag>
-```
-
-</details>
-
-## Development
-
-<details>
-<summary><b>Configuration reference</b></summary>
+## Configuration
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `REDIS_ADDR` | Redis server address | `localhost` |
-| `REDIS_PORT` | Redis server port | `6379` |
-| `REDIS_PASSWORD` | Redis password | (empty) |
-| `REDIS_STREAM` | Redis stream name | `messages` |
+| `PROFILE_PATH` | Path to the profile (`--profile` overrides) | `/etc/homerun2-schedule-pitcher/profile.yaml` |
 | `PORT` | HTTP server port | `8080` |
-| `AUTH_TOKEN` | Bearer token for auth | (required) |
-| `PITCHER_MODE` | Backend: `redis` or `file` | `redis` |
+| `AUTH_TOKEN` | Bearer token for `/api/*` | (required for the API) |
+| `PITCH_TARGET` | `http` (omni-pitcher from the profile), `file` or `stdout` | `http` |
+| `PITCH_FILE` | File for `PITCH_TARGET=file` (JSON lines) | `pitched.log` |
+| `PITCHER_ADDR` | Overrides `spec.pitcher.addr` | |
+| `PITCHER_TOKEN` | Overrides `spec.pitcher.auth` | |
+| `POD_NAMESPACE` | Namespace for `secretKeyRef` without namespace | pod namespace |
 | `LOG_FORMAT` | `json` or `text` | `json` |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, `error` | `info` |
+| `LOG_HEALTH_CHECKS` | Also log `/health`, `/ready`, `/metrics` requests | `false` |
 
-</details>
-
-## Testing
+## Development
 
 ```bash
-# Unit tests (no Redis needed)
-go test ./...
+task run-once     # dry run of profiles/local.yaml (uses `gh auth token`)
+task run-local    # serve profiles/local.yaml, pitching to stdout
 
-# Integration tests (Dagger + Redis)
-task build-test-binary
-
-# Lint
+go test ./...     # unit tests, no Redis or cluster needed
 task lint
-
-# Build + scan image
 task build-scan-image-ko
 ```
+
+The image is built with ko (`.ko.yaml`), there is no Dockerfile. The
+scaffold's GitHub Actions workflows are not committed yet; they come with
+the CI task of the MVP in #1.
 
 ## Links
 
 - [Releases](https://github.com/stuttgart-things/homerun2-schedule-pitcher/releases)
 - [homerun-library](https://github.com/stuttgart-things/homerun-library)
+- [homerun2-omni-pitcher](https://github.com/stuttgart-things/homerun2-omni-pitcher)

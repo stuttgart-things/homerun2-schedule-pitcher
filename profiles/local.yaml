@@ -1,0 +1,18 @@
+# Local development profile: `task run-local` (pitches to stdout) or
+#   GH_TOKEN=$(gh auth token) go run . run --profile profiles/local.yaml --dry-run
+apiVersion: homerun2.sthings.io/v1alpha1
+kind: SchedulePitcherProfile
+metadata:
+  name: local
+spec:
+  defaults:
+    schedule: "*/15 * * * *"
+  checks:
+    - id: my-github-token
+      type: github-token-expiry
+      tokenFrom:
+        env: GH_TOKEN
+    - id: github-com-tls
+      type: tls-endpoint
+      target: github.com
+      chain: true

@@ -85,17 +85,22 @@ tasks:
           run-redis --port {{ .PORT }} --password "{{ .PASSWORD }}" up
 
   run-local:
-    desc: Run pitcher locally with file backend (no Redis needed)
+    desc: Run the scheduler locally with profiles/local.yaml, pitching to stdout
     vars:
       PORT: '{{ .PORT | default "8080" }}'
     env:
-      DEMO_MODE: web
-      PITCH_TARGET: file
+      PROFILE_PATH: profiles/local.yaml
+      PITCH_TARGET: stdout
       AUTH_TOKEN: local-dev-token
       PORT: "{{ .PORT }}"
       LOG_FORMAT: text
     cmds:
-      - go run .
+      - GH_TOKEN=$(gh auth token) go run . serve
+
+  run-once:
+    desc: Run all checks of profiles/local.yaml once and print the messages (dry run)
+    cmds:
+      - GH_TOKEN=$(gh auth token) LOG_FORMAT=text go run . run --profile profiles/local.yaml --dry-run
 
   trigger-release:
     desc: Trigger Release workflow on GitHub Actions

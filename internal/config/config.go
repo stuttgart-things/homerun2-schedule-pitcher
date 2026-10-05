@@ -5,17 +5,8 @@ import (
 	"os"
 	"strings"
 
-	homerun "github.com/stuttgart-things/homerun-library/v3"
+	homerun "github.com/stuttgart-things/homerun-library/v4"
 )
-
-func LoadRedisConfig() homerun.RedisConfig {
-	return homerun.RedisConfig{
-		Addr:     homerun.GetEnv("REDIS_ADDR", "localhost"),
-		Port:     homerun.GetEnv("REDIS_PORT", "6379"),
-		Password: homerun.GetEnv("REDIS_PASSWORD", ""),
-		Stream:   homerun.GetEnv("REDIS_STREAM", "messages"),
-	}
-}
 
 // SetupLogging configures slog as the default logger based on LOG_FORMAT and LOG_LEVEL env vars.
 func SetupLogging() {
@@ -44,4 +35,29 @@ func SetupLogging() {
 	}
 
 	slog.SetDefault(slog.New(handler))
+}
+
+// Config is the process configuration from environment variables.
+type Config struct {
+	ProfilePath string
+	Port        string
+	// PitchTarget is http (omni-pitcher from the profile), file or stdout.
+	PitchTarget string
+	PitchFile   string
+	// PitcherToken overrides spec.pitcher.auth of the profile.
+	PitcherToken string
+	// PitcherAddr overrides spec.pitcher.addr of the profile.
+	PitcherAddr string
+}
+
+// Load reads the configuration once at startup.
+func Load() Config {
+	return Config{
+		ProfilePath:  homerun.GetEnv("PROFILE_PATH", "/etc/homerun2-schedule-pitcher/profile.yaml"),
+		Port:         homerun.GetEnv("PORT", "8080"),
+		PitchTarget:  homerun.GetEnv("PITCH_TARGET", "http"),
+		PitchFile:    homerun.GetEnv("PITCH_FILE", "pitched.log"),
+		PitcherToken: homerun.GetEnv("PITCHER_TOKEN", ""),
+		PitcherAddr:  homerun.GetEnv("PITCHER_ADDR", ""),
+	}
 }
