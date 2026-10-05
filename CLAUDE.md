@@ -14,8 +14,8 @@ history and locks (#10); findings ingest with office-hours delivery and
 acknowledge (#14); check results as findings and agent mode (#16): agents on
 the clusters run checks and send results to the central `POST /findings`.
 Label-based discovery of token Secrets (#18); CI workflows, Dagger
-integration test and KCL module for central + agent (#20). Next (MVP 2 in
-#1): web UI, reminders, deployment on platform. The
+integration test and KCL module for central + agent (#20); web UI (#22).
+Next (MVP 2 in #1): reminders, deployment on platform. The
 instance runs on platform and uses the homerun2 `redis-stack`. The Dagger module in
 `dagger/` runs unit tests and an integration test against Redis
 (`build-and-test-binary`).
@@ -35,6 +35,8 @@ instance runs on platform and uses the homerun2 `redis-stack`. The Dagger module
 - `internal/report`: check results -> findings (`FromStatuses`), senders to
   the local findings service (central) or a central `/findings` (agent)
 - `kcl/`: manifests, `config.mode: central | agent`; `tests/kcl-*-profile.yaml`
+- `internal/ui`: web UI, `html/template` from `templates/` (embedded),
+  login with `AUTH_TOKEN` and a signed cookie, no JavaScript
 - `internal/discovery`: labelled Secrets -> checks, `Loop` syncs them into
   the scheduler (`Scheduler.Sync`); tests use the client-go fake clientset
 

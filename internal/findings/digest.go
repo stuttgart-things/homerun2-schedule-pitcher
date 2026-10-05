@@ -251,6 +251,8 @@ func Age(d time.Duration) string {
 		return fmt.Sprintf("%d %ss", n, unit)
 	}
 	switch {
+	case d < time.Minute:
+		return "under a minute"
 	case d < time.Hour:
 		return plural(int(d/time.Minute), "minute")
 	case d < 24*time.Hour:

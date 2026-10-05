@@ -116,6 +116,21 @@ Per check, `schedule`, `remind`, `thresholds` (field by field), `assignee` and
 `apiURL` (GitHub Enterprise), `serverName` (TLS SNI / name to verify).
 Unknown fields are rejected. See [`profiles/`](profiles/) for examples.
 
+## Web UI
+
+`/ui/` on every instance (the root `/` redirects there): open and
+acknowledged findings with age, the checks with band, origin (profile or
+discovered, read-only), expiry, last and next run, **run now**, a detail page
+with history, and the resolved findings of the retention window. An agent
+shows its checks only.
+
+![Overview](docs/images/ui-overview.png)
+
+Log in with your name and the `AUTH_TOKEN`; the name is recorded on
+acknowledgements. The session is a signed, HttpOnly, SameSite=Strict cookie
+valid for 12 hours; rotating `AUTH_TOKEN` ends all sessions. Pages are
+server-rendered and need no JavaScript. Cross-site form posts are rejected.
+
 ## Discovery
 
 With `spec.discovery.enabled` an instance (usually an agent) turns every
@@ -242,6 +257,7 @@ spec:
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
+| `/ui/` | `GET` | Login | Web UI |
 | `/health` | `GET` | None | Liveness (version, commit, date) |
 | `/ready` | `GET` | None | `200` once the scheduler runs and the state store answers |
 | `/metrics` | `GET` | None | Prometheus metrics |
@@ -284,7 +300,7 @@ Metrics: `schedule_pitcher_check_last_run_timestamp_seconds{check}`,
 |----------|-------------|---------|
 | `PROFILE_PATH` | Path to the profile (`--profile` overrides) | `/etc/homerun2-schedule-pitcher/profile.yaml` |
 | `PORT` | HTTP server port | `8080` |
-| `AUTH_TOKEN` | Bearer token for `/api/*` | (required for the API) |
+| `AUTH_TOKEN` | Bearer token for `/api/*` and `POST /findings`, and the UI login | (required) |
 | `PITCH_TARGET` | `http` (omni-pitcher from the profile), `file` or `stdout` | `http` |
 | `PITCH_FILE` | File for `PITCH_TARGET=file` (JSON lines) | `pitched.log` |
 | `PITCHER_ADDR` | Overrides `spec.pitcher.addr` | |

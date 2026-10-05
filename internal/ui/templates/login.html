@@ -1,0 +1,17 @@
+{{define "login.html"}}{{template "head" .}}
+<div class="card" style="max-width:420px;margin:3rem auto">
+  <h1>Log in</h1>
+  {{if .Data.Enabled}}
+  <form method="post" action="/ui/login" style="display:grid;gap:.75rem">
+    <input type="hidden" name="next" value="{{.Data.Next}}">
+    <label>Your name <span class="muted small">(shown on acknowledgements)</span><br>
+      <input type="text" name="name" required maxlength="64" autocomplete="username" style="width:100%"></label>
+    <label>Token <span class="muted small">(AUTH_TOKEN)</span><br>
+      <input type="password" name="token" required autocomplete="current-password" style="width:100%"></label>
+    <button class="primary">Log in</button>
+  </form>
+  {{else}}
+  <p>The UI is disabled: <code>AUTH_TOKEN</code> is not set.</p>
+  {{end}}
+</div>
+{{template "foot" .}}{{end}}

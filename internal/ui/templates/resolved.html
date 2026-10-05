@@ -1,0 +1,18 @@
+{{define "resolved.html"}}{{template "head" .}}
+<h1>Resolved findings</h1>
+<p class="muted">Kept for the retention period, newest first.</p>
+<div class="card">
+{{if .Data}}
+<table>
+<tr><th>Severity</th><th>Finding</th><th>Host</th><th>Source</th><th>Resolved</th><th>Was open for</th></tr>
+{{range .Data}}
+<tr>
+  <td><span class="pill {{bandClass .Severity}}">{{.Severity}}</span></td>
+  <td>{{.Title}}</td><td class="small">{{.Host}}</td><td class="small">{{.Source}}</td>
+  <td class="small">{{when .ResolvedAt}}</td><td class="small">{{span .OpenSince .ResolvedAt}}</td>
+</tr>
+{{end}}
+</table>
+{{else}}<p class="muted">Nothing resolved recently.</p>{{end}}
+</div>
+{{template "foot" .}}{{end}}
