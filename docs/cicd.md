@@ -4,9 +4,14 @@
 
 | Workflow | Trigger | Description |
 |----------|---------|-------------|
-| `build-test` | Push/PR | Lint + unit tests via Dagger |
-| `build-scan-image` | Push to main | Build container image with ko, push to ghcr.io, scan with Trivy |
-| `release` | After image build | semantic-release: changelog, GitHub release, kustomize OCI push |
+| `build-test` | Push/PR | Dagger lint, unit tests, integration test against Redis (serve, findings ingest, check finding, ack, `run --dry-run`) |
+| `build-scan-image` | Push/PR | ko image to ghcr.io (`pr-<n>` tags on PRs), Trivy scan |
+| `lint-repo` | Push/PR | Repository linting (YAML, Markdown, secrets) |
+| `release` | After the image build on main | semantic-release, GitHub release, kustomize OCI push of the central KCL profile |
+| `pages` | After a release | TechDocs/MkDocs pages |
+| `cleanup-pr-artifacts` | PR closed | Deletes the PR image tags |
+
+PR previews (preview ApplicationSet, preview URL comment) are not set up yet.
 
 ## Release Process
 

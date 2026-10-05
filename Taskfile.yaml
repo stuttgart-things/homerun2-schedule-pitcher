@@ -102,6 +102,22 @@ tasks:
     cmds:
       - GH_TOKEN=$(gh auth token) LOG_FORMAT=text go run . run --profile profiles/local.yaml --dry-run
 
+  render-central:
+    desc: Render the central instance manifests from KCL
+    cmds:
+      - |
+        dagger call -m github.com/stuttgart-things/dagger/kcl@v0.134.0 run \
+          --source kcl --parameters-file tests/kcl-deploy-profile.yaml \
+          export --path /tmp/schedule-pitcher-central.yaml
+
+  render-agent:
+    desc: Render the agent manifests from KCL
+    cmds:
+      - |
+        dagger call -m github.com/stuttgart-things/dagger/kcl@v0.134.0 run \
+          --source kcl --parameters-file tests/kcl-agent-profile.yaml \
+          export --path /tmp/schedule-pitcher-agent.yaml
+
   trigger-release:
     desc: Trigger Release workflow on GitHub Actions
     cmds:

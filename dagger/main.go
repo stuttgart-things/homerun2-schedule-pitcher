@@ -87,7 +87,10 @@ func (m *Dagger) ScanImage(
 	})
 }
 
-// BuildAndTestBinary builds the binary and runs integration tests with Redis
+// BuildAndTestBinary runs the unit tests, builds the binary and runs an
+// integration test against Redis: serve with a profile whose only check
+// cannot complete offline, then health, readiness, findings ingest, the
+// check's could-not-check finding, acknowledge and run --dry-run.
 func (m *Dagger) BuildAndTestBinary(
 	ctx context.Context,
 	source *dagger.Directory,
@@ -120,6 +123,15 @@ func (m *Dagger) BuildAndTestBinary(
 	port int,
 ) (*dagger.File, error) {
 
+	unit := dag.Container().
+		From("golang:"+goVersion).
+		WithDirectory("/src", source).
+		WithWorkdir("/src").
+		WithExec([]string{"sh", "-c", "go test " + testPath + " 2>&1 | tee /tmp/unit-tests.log"})
+	if _, err := unit.Sync(ctx); err != nil {
+		return unit.File("/tmp/unit-tests.log"), fmt.Errorf("unit tests failed: %w", err)
+	}
+
 	binDir := dag.Go().BuildBinary(
 		source,
 		dagger.GoBuildBinaryOpts{
@@ -137,80 +149,111 @@ func (m *Dagger) BuildAndTestBinary(
 		Password: "",
 	})
 
+	profile := `apiVersion: homerun2.sthings.io/v1alpha1
+kind: SchedulePitcherProfile
+metadata:
+  name: ci
+spec:
+  checks:
+    - id: unreachable
+      type: tls-endpoint
+      target: unreachable.invalid:443
+      timeout: 2s
+`
+
 	testCmd := fmt.Sprintf(`
 exec > /app/test-output.log 2>&1
 set -e
+BASE=http://localhost:%[2]d
+AUTH="Authorization: Bearer test-token-12345"
+fail() { echo "FAIL: $1"; kill $BIN_PID 2>/dev/null || true; exit 1; }
 
 echo "=== Starting binary ==="
-./%s &
+./%[1]s serve --profile /app/profile.yaml &
 BIN_PID=$!
-sleep 3
+
+echo "=== Waiting for readiness ==="
+for i in $(seq 1 30); do curl -sf $BASE/ready >/dev/null && break; sleep 1; done
+curl -sf $BASE/health || fail "health"
+curl -sf $BASE/ready || fail "ready"
 
 echo ""
-echo "=== Testing health endpoint ==="
-curl -f -v http://localhost:%d/health || {
-  echo "Health check failed!"
-  kill $BIN_PID 2>/dev/null || true
-  exit 1
-}
+echo "=== POST /findings ==="
+RES=$(curl -sf -X POST $BASE/findings -H "$AUTH" -d '{"source":"ci","findings":[
+  {"key":"vm1/disk:/var","title":"/var at 74%%","severity":"info","value":74,"threshold":70,"host":"vm1"}]}') || fail "ingest"
+echo "$RES"
+echo "$RES" | grep -q '"new":1' || fail "ingest result"
 
 echo ""
-echo "=== Testing pitch endpoint ==="
-curl -f -v -X POST http://localhost:%d/pitch \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer test-token-12345" \
-  -d '{
-    "title": "Test Notification",
-    "message": "Testing Redis integration",
-    "severity": "info",
-    "author": "dagger-test",
-    "system": "test-system",
-    "tags": "test",
-    "assigneeaddress": "test@example.com",
-    "assigneename": "Test User"
-  }' || {
-  echo "Pitch endpoint failed!"
-  kill $BIN_PID 2>/dev/null || true
-  exit 1
-}
+echo "=== The check's could-not-check finding ==="
+for i in $(seq 1 20); do
+  OPEN=$(curl -sf "$BASE/api/findings?status=open" -H "$AUTH") || fail "list"
+  echo "$OPEN" | grep -q 'unreachable:could-not-check' && break
+  sleep 1
+done
+echo "$OPEN"
+echo "$OPEN" | grep -q 'unreachable:could-not-check' || fail "check finding missing"
+echo "$OPEN" | grep -q 'vm1/disk:/var' || fail "ingested finding missing"
+
+echo ""
+echo "=== Acknowledge ==="
+curl -sf -X POST $BASE/api/findings/ack -H "$AUTH" \
+  -d '{"source":"ci","key":"vm1/disk:/var","by":"ci","note":"test"}' | grep -q '"acknowledged"' || fail "ack"
+
+echo ""
+echo "=== Unauthenticated ingest is rejected ==="
+CODE=$(curl -s -o /dev/null -w '%%{http_code}' -X POST $BASE/findings -d '{}')
+[ "$CODE" = "401" ] || fail "expected 401, got $CODE"
+
+echo ""
+echo "=== run --dry-run ==="
+./%[1]s run --profile /app/profile.yaml --dry-run || true
 
 echo ""
 echo "=== All tests passed! ==="
 kill $BIN_PID 2>/dev/null || true
 exit 0
-`, binName, port, port)
+`, binName, port)
 
 	result := dag.Container().
 		From("alpine:latest").
 		WithExec([]string{"apk", "add", "--no-cache", "curl"}, dagger.ContainerWithExecOpts{}).
 		WithDirectory("/app", binDir).
+		WithNewFile("/app/profile.yaml", profile).
 		WithWorkdir("/app").
 		WithServiceBinding("redis", redisService).
 		WithEnvVariable("REDIS_ADDR", "redis").
 		WithEnvVariable("REDIS_PORT", "6379").
-		WithEnvVariable("REDIS_STREAM", "messages").
 		WithEnvVariable("AUTH_TOKEN", "test-token-12345").
-		WithExec([]string{"sh", "-c", testCmd}, dagger.ContainerWithExecOpts{})
+		WithEnvVariable("PITCH_TARGET", "stdout").
+		WithEnvVariable("PORT", fmt.Sprint(port)).
+		WithEnvVariable("LOG_FORMAT", "text").
+		WithExec([]string{"sh", "-c", testCmd}, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
 
-	_, err := result.Sync(ctx)
+	// The script's output is always read, so a failure shows what failed.
+	code, err := result.ExitCode(ctx)
 	if err != nil {
-		testLog := result.File("/app/test-output.log")
-		return testLog, fmt.Errorf("tests failed - check test-output.log for details: %w", err)
+		return nil, fmt.Errorf("running integration test: %w", err)
 	}
-
 	testLog := result.File("/app/test-output.log")
+	if code != 0 {
+		out, _ := testLog.Contents(ctx)
+		return testLog, fmt.Errorf("integration test failed (exit %d):\n%s", code, out)
+	}
 	return testLog, nil
 }
 
-// SmokeTest sends test messages to a deployed pitcher instance sequentially
-// with a delay between each, verifies HTTP responses, and returns a test report.
+// SmokeTest sends findings reports (a JSON array of POST /findings bodies) to
+// a deployed central instance one by one, verifies the responses, resolves
+// the test findings again with an empty report per source, and returns a
+// test report.
 func (m *Dagger) SmokeTest(
 	ctx context.Context,
 	// The base URL of the deployed pitcher (e.g., https://homerun2-schedule-pitcher.example.com)
 	endpoint string,
 	// Bearer token for authentication
 	authToken *dagger.Secret,
-	// JSON file containing test messages
+	// JSON array of findings reports ({"source": ..., "findings": [...]})
 	messagesFile *dagger.File,
 	// +optional
 	// +default=2
@@ -232,7 +275,7 @@ echo "============================================"
 echo "SMOKE TEST REPORT"
 echo "============================================"
 echo "Endpoint: $ENDPOINT"
-echo "Messages: $TOTAL"
+echo "Reports:  $TOTAL"
 echo "Delay:    ${DELAY}s between messages"
 echo "Started:  $(date -u '+%%Y-%%m-%%dT%%H:%%M:%%SZ')"
 echo "============================================"
@@ -252,30 +295,29 @@ else
 fi
 echo ""
 
-# Send messages one by one
+# Send reports one by one
 i=0
 while [ "$i" -lt "$TOTAL" ]; do
   MSG=$(jq -c ".[$i]" /tmp/messages.json)
-  TITLE=$(echo "$MSG" | jq -r '.title')
-  SEVERITY=$(echo "$MSG" | jq -r '.severity // "info"')
+  TITLE=$(echo "$MSG" | jq -r '.source')
+  SEVERITY=$(echo "$MSG" | jq -r '.findings | length | tostring + " findings"')
 
   echo "--- Message $((i + 1))/$TOTAL: $TITLE (severity=$SEVERITY) ---"
 
   HTTP_CODE=$(curl -sk -o /tmp/pitch-response.json -w "%%{http_code}" \
-    -X POST "$ENDPOINT/pitch" \
+    -X POST "$ENDPOINT/findings" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
     -d "$MSG")
 
   if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
-    STATUS=$(jq -r '.status' /tmp/pitch-response.json 2>/dev/null)
-    OBJECT_ID=$(jq -r '.objectId' /tmp/pitch-response.json 2>/dev/null)
-    STREAM_ID=$(jq -r '.streamId' /tmp/pitch-response.json 2>/dev/null)
-    if [ "$STATUS" = "success" ]; then
-      echo "PASS: HTTP $HTTP_CODE, status=$STATUS, objectId=$OBJECT_ID, stream=$STREAM_ID"
+    SOURCE=$(jq -r '.source' /tmp/pitch-response.json 2>/dev/null)
+    OPEN=$(jq -r '.open' /tmp/pitch-response.json 2>/dev/null)
+    if [ "$SOURCE" != "null" ] && [ -n "$SOURCE" ]; then
+      echo "PASS: HTTP $HTTP_CODE, source=$SOURCE, open=$OPEN"
       PASSED=$((PASSED + 1))
     else
-      echo "FAIL: HTTP $HTTP_CODE but status=$STATUS"
+      echo "FAIL: HTTP $HTTP_CODE but no source in the response"
       cat /tmp/pitch-response.json
       FAILED=$((FAILED + 1))
     fi
@@ -293,11 +335,18 @@ while [ "$i" -lt "$TOTAL" ]; do
   echo ""
 done
 
+# Resolve the test findings again
+for SRC in $(jq -r '.[].source' /tmp/messages.json | sort -u); do
+  curl -sk -o /dev/null -X POST "$ENDPOINT/findings" -H "Authorization: Bearer $TOKEN" \
+    -d "{\"source\":\"$SRC\",\"findings\":[]}" && echo "cleanup: resolved findings of $SRC"
+done
+echo ""
+
 # Summary
 echo "============================================"
 echo "SUMMARY"
 echo "============================================"
-echo "Total:  $((TOTAL + 1)) (health + $TOTAL messages)"
+echo "Total:  $((TOTAL + 1)) (health + $TOTAL reports)"
 echo "Passed: $PASSED"
 echo "Failed: $FAILED"
 echo "Ended:  $(date -u '+%%Y-%%m-%%dT%%H:%%M:%%SZ')"

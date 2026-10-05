@@ -1,0 +1,16 @@
+---
+name: Cleanup PR Artifacts
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+jobs:
+  cleanup:
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-cleanup-pr-artifacts.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      packages: homerun2-schedule-pitcher,homerun2-schedule-pitcher-kustomize
+      dry-run: false
+    secrets: inherit # pragma: allowlist secret

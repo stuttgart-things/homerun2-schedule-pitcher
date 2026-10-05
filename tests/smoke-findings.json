@@ -1,0 +1,9 @@
+[
+  {
+    "source": "smoke-test",
+    "run": "smoke",
+    "findings": [
+      {"key": "smoke-vm/disk:/var", "title": "/var at 74%", "severity": "info", "value": 74, "threshold": 70, "host": "smoke-vm", "tags": ["smoke"]}
+    ]
+  }
+]

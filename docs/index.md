@@ -1,27 +1,35 @@
 # homerun2-schedule-pitcher
 
-homerun2 pitcher that runs scheduled checks (token & certificate expiry, probes) and user-defined reminders, and pitches the results into homerun2
+Runs scheduled checks (GitHub token and TLS certificate expiry) and collects
+findings from other jobs, keeps their state, and delivers them into homerun2
+in office hours. The design is tracked in
+[#1](https://github.com/stuttgart-things/homerun2-schedule-pitcher/issues/1).
 
-## Quick Start
+```
+ cluster A                cluster B                 VMs, other jobs
+ agent (run/serve) ──┐    agent ──┐                 cron + curl ──┐
+                     └──────────────┴── POST /findings ────────────┘
+                                         │
+                          central instance on platform
+                     (state in redis-stack, delivery, UI) ──▶ omni-pitcher ──▶ Teams
+```
+
+- **Central instance** (`serve`): state in Redis, findings, office-hours
+  delivery to omni-pitcher, API. Also runs its own checks.
+- **Agent** (same binary with `spec.report`): runs the checks of its cluster
+  next to the secrets, discovers labelled token Secrets, and sends only the
+  results to the central `POST /findings`.
+
+## Quick start
 
 ```bash
-# Run with Redis
-export REDIS_ADDR=localhost REDIS_PORT=6379 REDIS_STREAM=messages AUTH_TOKEN=mysecret
-go run .
+# Dry run of the local example profile (uses `gh auth token`)
+task run-once
 
-# Dev mode (no Redis)
-PITCHER_MODE=file AUTH_TOKEN=test go run .
+# Serve locally, pitching to stdout, state in memory
+task run-local
 ```
 
-## API Endpoints
-
-| Endpoint | Method | Auth | Description |
-|----------|--------|------|-------------|
-| `/health` | `GET` | None | Health check |
-| `/pitch` | `POST` | Bearer token | Submit a message to Redis Streams |
-
-## Architecture
-
-```
-HTTP POST /pitch → homerun2-schedule-pitcher → Redis Stream (messages)
-```
+See the [README](https://github.com/stuttgart-things/homerun2-schedule-pitcher#readme)
+for the profile format, checks, discovery, findings and the API, and
+[API usage](api-usage.md) for `curl` examples.

@@ -21,8 +21,6 @@ const serviceText = `HOMERUN2-SCHEDULE-PITCHER`
 
 const glitchChars = "░▒▓█▄▀▐▌╠╣╬═║╗╝╚╔"
 
-const fieldWidth = 70
-
 var (
 	primaryColor = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FF6600")).

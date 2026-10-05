@@ -1,0 +1,32 @@
+---
+name: Build, Push & Scan Container Image
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-pr:
+    if: github.event_name == 'pull_request'
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      registry: ghcr.io
+      # The head of the pull request, not the merge commit GitHub checks out
+      # by default, so the tag `pr-<n>-<head sha>` names what was built.
+      ref: ${{ github.event.pull_request.head.sha }}
+      tags: pr-${{ github.event.number }}-${{ github.event.pull_request.head.sha }},pr-${{ github.event.number }}
+    secrets: inherit # pragma: allowlist secret
+
+  build-main:
+    if: github.event_name != 'pull_request'
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-ko-build.yaml@main
+    with:
+      runs-on: ubuntu-latest
+    secrets: inherit # pragma: allowlist secret

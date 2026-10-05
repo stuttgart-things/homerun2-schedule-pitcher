@@ -1,0 +1,18 @@
+---
+name: Lint Repository
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-repository-linting.yaml@main
+    with:
+      runs-on: ubuntu-latest
+    secrets: inherit # pragma: allowlist secret
