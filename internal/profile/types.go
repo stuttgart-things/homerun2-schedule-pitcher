@@ -18,6 +18,23 @@ type Spec struct {
 	Redis    RedisConfig   `yaml:"redis"`
 	Defaults Defaults      `yaml:"defaults"`
 	Checks   []Check       `yaml:"checks"`
+	Findings Findings      `yaml:"findings"`
+}
+
+// Findings configures findings reported by other jobs (POST /findings).
+type Findings struct {
+	// OfficeHours apply every day in spec.defaults.timezone.
+	OfficeHours OfficeHours `yaml:"officeHours"`
+	// AckExpiry re-opens an acknowledged finding after this long (default 3d).
+	AckExpiry Duration `yaml:"ackExpiry"`
+	// Retention deletes resolved findings after this long (default 7d).
+	Retention Duration `yaml:"retention"`
+}
+
+// OfficeHours are whole hours, [start, end); defaults 8 and 18.
+type OfficeHours struct {
+	Start *int `yaml:"start"`
+	End   *int `yaml:"end"`
 }
 
 // Pitcher formats.

@@ -22,6 +22,7 @@ import (
 
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/banner"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/config"
+	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/findings"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/handlers"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/metrics"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/middleware"
@@ -95,7 +96,7 @@ func serve(cfg config.Config, args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := buildStore(ctx, cfg, prof, resolver)
+	st, fst, err := buildStore(ctx, cfg, prof, resolver)
 	if err != nil {
 		return err
 	}
@@ -116,6 +117,18 @@ func serve(cfg config.Config, args []string) error {
 	mux.HandleFunc("POST /api/checks/{id}/run", auth(handlers.NewRunHandler(sched)))
 	mux.HandleFunc("GET /api/checks/{id}/history", auth(handlers.NewHistoryHandler(sched)))
 
+	fc := prof.Spec.Findings
+	fsvc := findings.NewService(fst, st, pt, findings.Config{
+		Hours:     findings.OfficeHours{Start: *fc.OfficeHours.Start, End: *fc.OfficeHours.End, Loc: prof.Location()},
+		AckExpiry: fc.AckExpiry.D(),
+		Retention: fc.Retention.D(),
+		System:    prof.Spec.Defaults.System,
+		Assignee:  prof.Spec.Defaults.Assignee,
+	})
+	mux.HandleFunc("POST /findings", auth(handlers.NewIngestHandler(fsvc)))
+	mux.HandleFunc("GET /api/findings", auth(handlers.NewFindingsHandler(fsvc)))
+	mux.HandleFunc("POST /api/findings/ack", auth(handlers.NewAckHandler(fsvc)))
+
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           middleware.RequestLogging(mux),
@@ -133,6 +146,7 @@ func serve(cfg config.Config, args []string) error {
 		waitForPitcher(ctx, readyCheck)
 	}
 	sched.Start(ctx)
+	fsvc.Start(ctx)
 	ready.Store(true)
 	slog.Info("scheduler started")
 
@@ -242,7 +256,7 @@ func printStatuses(statuses []scheduler.CheckStatus) {
 
 // buildStore returns the Redis store when an address is configured (profile
 // or REDIS_ADDR), otherwise the in-memory store.
-func buildStore(ctx context.Context, cfg config.Config, prof *profile.SchedulePitcherProfile, resolver *secrets.Resolver) (store.Store, error) {
+func buildStore(ctx context.Context, cfg config.Config, prof *profile.SchedulePitcherProfile, resolver *secrets.Resolver) (store.Store, findings.Store, error) {
 	rc := prof.Spec.Redis
 	addr, port, password := rc.Addr, rc.Port, rc.Password
 	if cfg.RedisAddr != "" {
@@ -256,7 +270,7 @@ func buildStore(ctx context.Context, cfg config.Config, prof *profile.SchedulePi
 	}
 	if addr == "" {
 		slog.Warn("no Redis configured, state is kept in memory and lost on restart")
-		return store.NewMemory(), nil
+		return store.NewMemory(), findings.NewMemory(), nil
 	}
 	switch {
 	case cfg.RedisPassword != "":
@@ -264,7 +278,7 @@ func buildStore(ctx context.Context, cfg config.Config, prof *profile.SchedulePi
 	case rc.PasswordFrom != nil:
 		p, err := resolver.Resolve(ctx, rc.PasswordFrom)
 		if err != nil {
-			return nil, fmt.Errorf("resolving spec.redis.passwordFrom: %w", err)
+			return nil, nil, fmt.Errorf("resolving spec.redis.passwordFrom: %w", err)
 		}
 		password = p
 	}
@@ -278,7 +292,7 @@ func buildStore(ctx context.Context, cfg config.Config, prof *profile.SchedulePi
 	} else {
 		slog.Info("state store: redis", "addr", addr, "port", port, "prefix", st.Prefix())
 	}
-	return st, nil
+	return st, findings.NewRedis(client, st.Prefix()), nil
 }
 
 // buildPitcher returns the delivery target and, for HTTP, a readiness probe.
