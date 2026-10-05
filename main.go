@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -28,6 +30,7 @@ import (
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/middleware"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/pitcher"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/profile"
+	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/report"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/scheduler"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/secrets"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/store"
@@ -92,13 +95,23 @@ func serve(cfg config.Config, args []string) error {
 	defer stop()
 
 	resolver := secrets.NewResolver(nil)
-	pt, readyCheck, err := buildPitcher(ctx, cfg, prof, resolver)
-	if err != nil {
-		return err
-	}
 	st, fst, err := buildStore(ctx, cfg, prof, resolver)
 	if err != nil {
 		return err
+	}
+
+	// An agent reports its results to a central instance and pitches nothing
+	// itself; the central instance routes its own results through findings.
+	agent, err := buildReportSender(ctx, cfg, prof, resolver)
+	if err != nil {
+		return err
+	}
+	var pt pitcher.Pitcher = &pitcher.Writer{W: io.Discard}
+	var readyCheck func(context.Context) error
+	if agent == nil {
+		if pt, readyCheck, err = buildPitcher(ctx, cfg, prof, resolver); err != nil {
+			return err
+		}
 	}
 	sched, err := scheduler.New(prof, st, pt, resolver)
 	if err != nil {
@@ -117,17 +130,26 @@ func serve(cfg config.Config, args []string) error {
 	mux.HandleFunc("POST /api/checks/{id}/run", auth(handlers.NewRunHandler(sched)))
 	mux.HandleFunc("GET /api/checks/{id}/history", auth(handlers.NewHistoryHandler(sched)))
 
-	fc := prof.Spec.Findings
-	fsvc := findings.NewService(fst, st, pt, findings.Config{
-		Hours:     findings.OfficeHours{Start: *fc.OfficeHours.Start, End: *fc.OfficeHours.End, Loc: prof.Location()},
-		AckExpiry: fc.AckExpiry.D(),
-		Retention: fc.Retention.D(),
-		System:    prof.Spec.Defaults.System,
-		Assignee:  prof.Spec.Defaults.Assignee,
-	})
-	mux.HandleFunc("POST /findings", auth(handlers.NewIngestHandler(fsvc)))
-	mux.HandleFunc("GET /api/findings", auth(handlers.NewFindingsHandler(fsvc)))
-	mux.HandleFunc("POST /api/findings/ack", auth(handlers.NewAckHandler(fsvc)))
+	reporter := &report.Reporter{Scheduler: sched, Source: reportSource(prof), System: prof.Spec.Defaults.System}
+	var fsvc *findings.Service
+	if agent != nil {
+		reporter.Sender = agent
+		slog.Info("agent mode: reporting check results", "addr", reportAddr(cfg, prof), "source", reporter.Source)
+	} else {
+		fc := prof.Spec.Findings
+		fsvc = findings.NewService(fst, st, pt, findings.Config{
+			Hours:     findings.OfficeHours{Start: *fc.OfficeHours.Start, End: *fc.OfficeHours.End, Loc: prof.Location()},
+			AckExpiry: fc.AckExpiry.D(),
+			Retention: fc.Retention.D(),
+			System:    prof.Spec.Defaults.System,
+			Assignee:  prof.Spec.Defaults.Assignee,
+		})
+		mux.HandleFunc("POST /findings", auth(handlers.NewIngestHandler(fsvc)))
+		mux.HandleFunc("GET /api/findings", auth(handlers.NewFindingsHandler(fsvc)))
+		mux.HandleFunc("POST /api/findings/ack", auth(handlers.NewAckHandler(fsvc)))
+		reporter.Sender = report.Local{Service: fsvc}
+	}
+	sched.DeliverAsFindings(reporter.AfterRun)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -146,7 +168,9 @@ func serve(cfg config.Config, args []string) error {
 		waitForPitcher(ctx, readyCheck)
 	}
 	sched.Start(ctx)
-	fsvc.Start(ctx)
+	if fsvc != nil {
+		fsvc.Start(ctx)
+	}
 	ready.Store(true)
 	slog.Info("scheduler started")
 
@@ -203,8 +227,17 @@ func runOnce(cfg config.Config, args []string) error {
 	defer stop()
 
 	resolver := secrets.NewResolver(nil)
+	var agent report.Sender
+	switch {
+	case reportAddr(cfg, prof) != "" && *dryRun:
+		agent = jsonPrinter{}
+	case reportAddr(cfg, prof) != "":
+		if agent, err = buildReportSender(ctx, cfg, prof, resolver); err != nil {
+			return err
+		}
+	}
 	var pt pitcher.Pitcher = &pitcher.Writer{W: os.Stdout}
-	if !*dryRun {
+	if !*dryRun && agent == nil {
 		if pt, _, err = buildPitcher(ctx, cfg, prof, resolver); err != nil {
 			return err
 		}
@@ -213,11 +246,23 @@ func runOnce(cfg config.Config, args []string) error {
 	if err != nil {
 		return err
 	}
+	if agent != nil {
+		// Reported once below, as one complete set.
+		sched.DeliverAsFindings(nil)
+		if *only != "" {
+			return errors.New("--check cannot be combined with spec.report: a report is always the complete set")
+		}
+	}
 
 	if *only != "" {
 		_, err = sched.Run(ctx, *only)
 	} else {
 		err = sched.RunAll(ctx)
+	}
+
+	if agent != nil {
+		r := &report.Reporter{Scheduler: sched, Sender: agent, Source: reportSource(prof), System: prof.Spec.Defaults.System}
+		err = errors.Join(err, r.Report(ctx))
 	}
 
 	statuses, sErr := sched.Statuses(ctx)
@@ -293,6 +338,55 @@ func buildStore(ctx context.Context, cfg config.Config, prof *profile.SchedulePi
 		slog.Info("state store: redis", "addr", addr, "port", port, "prefix", st.Prefix())
 	}
 	return st, findings.NewRedis(client, st.Prefix()), nil
+}
+
+func reportSource(prof *profile.SchedulePitcherProfile) string {
+	if src := prof.Spec.Report.Source; src != "" {
+		return src
+	}
+	return "checks"
+}
+
+func reportAddr(cfg config.Config, prof *profile.SchedulePitcherProfile) string {
+	if cfg.ReportAddr != "" {
+		return cfg.ReportAddr
+	}
+	return prof.Spec.Report.Addr
+}
+
+// buildReportSender returns the sender to a central instance, or nil when
+// this instance is not an agent.
+func buildReportSender(ctx context.Context, cfg config.Config, prof *profile.SchedulePitcherProfile, resolver *secrets.Resolver) (report.Sender, error) {
+	rc := prof.Spec.Report
+	addr := reportAddr(cfg, prof)
+	if addr == "" {
+		return nil, nil
+	}
+	token := rc.Auth.Token
+	switch {
+	case cfg.ReportToken != "":
+		token = cfg.ReportToken
+	case rc.Auth.TokenFrom != nil:
+		t, err := resolver.Resolve(ctx, rc.Auth.TokenFrom)
+		if err != nil {
+			return nil, fmt.Errorf("resolving spec.report.auth.tokenFrom: %w", err)
+		}
+		token = t
+	}
+	client, err := pitcher.NewHTTPClient(rc.CAFile, rc.Insecure)
+	if err != nil {
+		return nil, err
+	}
+	return report.HTTP{Addr: addr, Token: token, Client: client}, nil
+}
+
+// jsonPrinter prints a report instead of sending it (run --dry-run).
+type jsonPrinter struct{}
+
+func (jsonPrinter) Send(_ context.Context, r findings.Report) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(r)
 }
 
 // buildPitcher returns the delivery target and, for HTTP, a readiness probe.

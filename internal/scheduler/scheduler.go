@@ -49,6 +49,37 @@ type Scheduler struct {
 
 	mu   sync.Mutex
 	cron *cron.Cron
+
+	// pitch is false when results are delivered as findings instead.
+	pitch    bool
+	afterRun func(ctx context.Context)
+}
+
+// DeliverAsFindings stops pitching notifications. afterRun, if set, is
+// called after every run of a check, outside its lock, to report the
+// results instead.
+func (s *Scheduler) DeliverAsFindings(afterRun func(ctx context.Context)) {
+	s.pitch = false
+	s.afterRun = afterRun
+}
+
+// AllRan reports whether every active check has run at least once, so a
+// report of the complete set does not resolve findings of checks that
+// simply have not run yet.
+func (s *Scheduler) AllRan(ctx context.Context) (bool, error) {
+	for _, id := range s.order {
+		if s.entries[id].check.Paused {
+			continue
+		}
+		st, err := s.store.Get(ctx, id)
+		if err != nil {
+			return false, err
+		}
+		if st.LastRun.IsZero() {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // New builds a scheduler. A check whose checker cannot be built (for example
@@ -61,6 +92,7 @@ func New(p *profile.SchedulePitcherProfile, st store.Store, pt pitcher.Pitcher, 
 		loc:     p.Location(),
 		now:     time.Now,
 		entries: map[string]*entry{},
+		pitch:   true,
 	}
 	for _, c := range p.Spec.Checks {
 		sched, err := profile.ParseSchedule(c.Schedule, s.loc)
@@ -146,8 +178,17 @@ func (s *Scheduler) RunAll(ctx context.Context) error {
 }
 
 // Run runs one check now. The returned error is about running the check or
-// pitching, not about what the check found.
+// pitching, not about what the check found. With DeliverAsFindings, the
+// results are reported afterwards.
 func (s *Scheduler) Run(ctx context.Context, id string) (state.State, error) {
+	st, err := s.run(ctx, id)
+	if s.afterRun != nil && !errors.Is(err, ErrBusy) && !errors.Is(err, ErrUnknownCheck) {
+		s.afterRun(ctx)
+	}
+	return st, err
+}
+
+func (s *Scheduler) run(ctx context.Context, id string) (state.State, error) {
 	e, ok := s.entries[id]
 	if !ok {
 		return state.State{}, ErrUnknownCheck
@@ -175,6 +216,9 @@ func (s *Scheduler) Run(ctx context.Context, id string) (state.State, error) {
 
 	var pitchErrs []error
 	var pitched []string
+	if !s.pitch {
+		notes = nil
+	}
 	for _, n := range notes {
 		m := pitcher.Render(n, e.check, s.system)
 		err := s.pitcher.Pitch(ctx, m)

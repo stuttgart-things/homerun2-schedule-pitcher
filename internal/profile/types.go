@@ -19,6 +19,20 @@ type Spec struct {
 	Defaults Defaults      `yaml:"defaults"`
 	Checks   []Check       `yaml:"checks"`
 	Findings Findings      `yaml:"findings"`
+	// Report turns the instance into an agent: check results are sent as
+	// findings to a central instance instead of being pitched.
+	Report ReportConfig `yaml:"report"`
+}
+
+// ReportConfig points an agent to the central POST /findings.
+type ReportConfig struct {
+	// Addr is the central findings URL, e.g. https://schedule-pitcher.example/findings.
+	Addr string `yaml:"addr"`
+	// Source names this agent's findings; default checks-<metadata.name>.
+	Source   string     `yaml:"source"`
+	CAFile   string     `yaml:"caFile"`
+	Insecure bool       `yaml:"insecure"`
+	Auth     AuthConfig `yaml:"auth"`
 }
 
 // Findings configures findings reported by other jobs (POST /findings).

@@ -13,9 +13,34 @@ homerun2 pitcher that runs scheduled checks (token & certificate expiry, probes)
 
 ## How it works
 
-The service reads a `SchedulePitcherProfile` (usually a mounted ConfigMap),
-runs every check at startup and then on its `schedule`, and pitches to
-omni-pitcher when the state of a check changes:
+```
+ cluster A                cluster B                 VMs, other jobs
+ agent (run/serve) ──┐    agent ──┐                 cron + curl ──┐
+                     └──────────────┴── POST /findings ────────────┘
+                                         │
+                          central instance on platform
+                     (state in redis-stack, delivery, UI) ──▶ omni-pitcher ──▶ Teams
+```
+
+- The **central instance** (`serve` without `spec.report`) owns state and
+  delivery. It runs its own checks too (e.g. TLS endpoints reachable from
+  platform) and receives findings from agents and other jobs.
+- An **agent** is the same binary with `spec.report`. It runs the checks of
+  its cluster next to the secrets and sends only the results, as findings, to
+  the central `POST /findings`. Secrets never leave the cluster, and platform
+  needs no access into the clusters. Run it as a CronJob (`run`) or a small
+  Deployment (`serve`, reports after every check run).
+
+Check results become findings (source `checks-<metadata.name>`, key = check
+id): a check that is not ok is a finding with its band as severity and the
+days left as value; a check that cannot complete is an extra
+`<id>:could-not-check` finding (`warning`); an ok check is absent, so its
+finding resolves. They are then delivered in office hours like every other
+finding (see below): `critical` at once, `error` at once inside office hours,
+everything else in the hourly updates and the daily summaries.
+
+`run` without `spec.report` keeps the original direct delivery, for CI and
+one-off runs: it pitches to omni-pitcher when the state of a check changes:
 
 | Situation | Pitch |
 |---|---|
@@ -157,9 +182,25 @@ spec:
 # Scheduler + HTTP API (default command)
 homerun2-schedule-pitcher serve --profile /etc/homerun2-schedule-pitcher/profile.yaml
 
-# One pass, no state: pitches everything that is not ok, then exits.
-# For CI or a ScheduledRun. --dry-run prints the messages instead.
+# One pass, no state, then exits. Without spec.report it pitches everything
+# that is not ok (CI, ScheduledRun); with spec.report (agent as CronJob) it
+# sends one complete report to the central instance.
+# --dry-run prints the messages or the report instead.
 homerun2-schedule-pitcher run --profile profile.yaml [--dry-run] [--check <id>]
+```
+
+Agent profile (see [`profiles/agent-machinery.yaml`](profiles/agent-machinery.yaml)):
+
+```yaml
+spec:
+  report:
+    addr: https://schedule-pitcher.platform.example/findings
+    source: checks-machinery      # default checks-<metadata.name>
+    caFile: /etc/ssl/vault-pki-ca/ca.crt
+    auth:
+      tokenFrom:
+        secretKeyRef: { name: schedule-pitcher-central, key: token }
+  checks: [...]
 ```
 
 ## API Endpoints
@@ -213,6 +254,8 @@ Metrics: `schedule_pitcher_check_last_run_timestamp_seconds{check}`,
 | `PITCH_FILE` | File for `PITCH_TARGET=file` (JSON lines) | `pitched.log` |
 | `PITCHER_ADDR` | Overrides `spec.pitcher.addr` | |
 | `PITCHER_TOKEN` | Overrides `spec.pitcher.auth` | |
+| `REPORT_ADDR` | Overrides `spec.report.addr`; makes the instance an agent | |
+| `REPORT_TOKEN` | Overrides `spec.report.auth` | |
 | `REDIS_ADDR` | Overrides `spec.redis.addr`; enables the Redis store | |
 | `REDIS_PORT` | Overrides `spec.redis.port` | `6379` |
 | `REDIS_PASSWORD` | Overrides `spec.redis.password` / `passwordFrom` | |

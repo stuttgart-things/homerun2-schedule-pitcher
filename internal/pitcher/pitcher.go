@@ -42,6 +42,16 @@ func NewHTTP(addr, format, token, caFile string, insecure bool) (*HTTP, error) {
 	if format != profile.FormatGrafana && format != profile.FormatGeneric {
 		return nil, fmt.Errorf("unknown pitcher format %q", format)
 	}
+	client, err := NewHTTPClient(caFile, insecure)
+	if err != nil {
+		return nil, err
+	}
+	return &HTTP{Addr: addr, Format: format, Token: token, client: client}, nil
+}
+
+// NewHTTPClient returns a client with a request timeout that trusts the
+// system roots plus caFile.
+func NewHTTPClient(caFile string, insecure bool) (*http.Client, error) {
 	tlsCfg := &tls.Config{InsecureSkipVerify: insecure} //nolint:gosec // opt-in via profile
 	if caFile != "" {
 		roots, err := x509.SystemCertPool()
@@ -50,7 +60,7 @@ func NewHTTP(addr, format, token, caFile string, insecure bool) (*HTTP, error) {
 		}
 		pem, err := os.ReadFile(caFile)
 		if err != nil {
-			return nil, fmt.Errorf("reading pitcher CA file: %w", err)
+			return nil, fmt.Errorf("reading CA file: %w", err)
 		}
 		if !roots.AppendCertsFromPEM(pem) {
 			return nil, fmt.Errorf("no certificates found in %s", caFile)
@@ -59,12 +69,7 @@ func NewHTTP(addr, format, token, caFile string, insecure bool) (*HTTP, error) {
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = tlsCfg
-	return &HTTP{
-		Addr:   addr,
-		Format: format,
-		Token:  token,
-		client: &http.Client{Timeout: requestTimeout, Transport: transport},
-	}, nil
+	return &http.Client{Timeout: requestTimeout, Transport: transport}, nil
 }
 
 func (h *HTTP) Pitch(ctx context.Context, m Message) error {

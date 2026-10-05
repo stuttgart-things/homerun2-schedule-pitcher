@@ -114,6 +114,28 @@ spec:
 	}
 }
 
+func TestReportDefaults(t *testing.T) {
+	p, err := Parse([]byte(`
+apiVersion: homerun2.sthings.io/v1alpha1
+kind: SchedulePitcherProfile
+metadata: { name: machinery }
+spec:
+  report: { addr: "https://central/findings", auth: { tokenFrom: { env: T } } }
+`))
+	if err != nil || p.Spec.Report.Source != "checks-machinery" {
+		t.Fatalf("source = %q, %v", p.Spec.Report.Source, err)
+	}
+	_, err = Parse([]byte(`
+apiVersion: homerun2.sthings.io/v1alpha1
+kind: SchedulePitcherProfile
+spec:
+  report: { addr: "https://central/findings" }
+`))
+	if err == nil || !strings.Contains(err.Error(), "spec.report.source is required") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestParseErrors(t *testing.T) {
 	head := "apiVersion: homerun2.sthings.io/v1alpha1\nkind: SchedulePitcherProfile\n"
 	tests := []struct {
