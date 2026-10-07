@@ -43,6 +43,10 @@ type Config struct {
 	Port        string
 	// AuthToken protects /api/*, POST /findings and the UI login.
 	AuthToken string
+	// AuthTokenSecret names the Secret holding AUTH_TOKEN (login page hint).
+	AuthTokenSecret string
+	// PodNamespace is where this instance runs (login page hint).
+	PodNamespace string
 	// PitchTarget is http (omni-pitcher from the profile), file or stdout.
 	PitchTarget string
 	PitchFile   string
@@ -62,17 +66,19 @@ type Config struct {
 // Load reads the configuration once at startup.
 func Load() Config {
 	return Config{
-		ProfilePath:   homerun.GetEnv("PROFILE_PATH", "/etc/homerun2-schedule-pitcher/profile.yaml"),
-		Port:          homerun.GetEnv("PORT", "8080"),
-		AuthToken:     homerun.GetEnv("AUTH_TOKEN", ""),
-		PitchTarget:   homerun.GetEnv("PITCH_TARGET", "http"),
-		PitchFile:     homerun.GetEnv("PITCH_FILE", "pitched.log"),
-		PitcherToken:  homerun.GetEnv("PITCHER_TOKEN", ""),
-		PitcherAddr:   homerun.GetEnv("PITCHER_ADDR", ""),
-		ReportAddr:    homerun.GetEnv("REPORT_ADDR", ""),
-		ReportToken:   homerun.GetEnv("REPORT_TOKEN", ""),
-		RedisAddr:     homerun.GetEnv("REDIS_ADDR", ""),
-		RedisPort:     homerun.GetEnv("REDIS_PORT", ""),
-		RedisPassword: homerun.GetEnv("REDIS_PASSWORD", ""),
+		ProfilePath:     homerun.GetEnv("PROFILE_PATH", "/etc/homerun2-schedule-pitcher/profile.yaml"),
+		Port:            homerun.GetEnv("PORT", "8080"),
+		AuthToken:       homerun.GetEnv("AUTH_TOKEN", ""),
+		AuthTokenSecret: homerun.GetEnv("AUTH_TOKEN_SECRET", "homerun2-schedule-pitcher-token"),
+		PodNamespace:    homerun.GetEnv("POD_NAMESPACE", ""),
+		PitchTarget:     homerun.GetEnv("PITCH_TARGET", "http"),
+		PitchFile:       homerun.GetEnv("PITCH_FILE", "pitched.log"),
+		PitcherToken:    homerun.GetEnv("PITCHER_TOKEN", ""),
+		PitcherAddr:     homerun.GetEnv("PITCHER_ADDR", ""),
+		ReportAddr:      homerun.GetEnv("REPORT_ADDR", ""),
+		ReportToken:     homerun.GetEnv("REPORT_TOKEN", ""),
+		RedisAddr:       homerun.GetEnv("REDIS_ADDR", ""),
+		RedisPort:       homerun.GetEnv("REDIS_PORT", ""),
+		RedisPassword:   homerun.GetEnv("REDIS_PASSWORD", ""),
 	}
 }

@@ -127,8 +127,17 @@ shows its checks only.
 
 ![Overview](docs/images/ui-overview.png)
 
-Log in with your name and the `AUTH_TOKEN`; the name is recorded on
-acknowledgements. The session is a signed, HttpOnly, SameSite=Strict cookie
+The look is the one of the other homerun2 UIs (core-catcher). Log in with
+your name and the `AUTH_TOKEN`; the name is recorded on acknowledgements.
+The token is in the Secret `<name>-token` (key `auth-token`), which the login
+page names as well:
+
+```bash
+kubectl -n homerun2 get secret homerun2-schedule-pitcher-token -o jsonpath='{.data.auth-token}' | base64 -d
+# or from Git (platform-sthings):
+sops -d clusters/labul/vsphere/platform-sthings/apps/homerun2-schedule-pitcher-secrets.enc.yaml
+```
+ The session is a signed, HttpOnly, SameSite=Strict cookie
 valid for 12 hours; rotating `AUTH_TOKEN` ends all sessions. Pages are
 server-rendered and need no JavaScript. Cross-site form posts are rejected.
 
@@ -323,6 +332,7 @@ Metrics: `schedule_pitcher_check_last_run_timestamp_seconds{check}`,
 | `POD_NAMESPACE` | Namespace for `secretKeyRef` without namespace | pod namespace |
 | `LOG_FORMAT` | `json` or `text` | `json` |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, `error` | `info` |
+| `AUTH_TOKEN_SECRET` | Secret named on the login page as the token's source | `homerun2-schedule-pitcher-token` |
 | `LOG_HEALTH_CHECKS` | Also log `/health`, `/ready`, `/metrics` requests | `false` |
 
 ## Development

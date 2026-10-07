@@ -24,6 +24,9 @@ import (
 //go:embed templates/*.html
 var templateFS embed.FS
 
+//go:embed favicon.png
+var favicon []byte
+
 // Checks is what the UI needs from the scheduler.
 type Checks interface {
 	Statuses(ctx context.Context) ([]scheduler.CheckStatus, error)
@@ -48,9 +51,13 @@ type UI struct {
 	Version string
 	Mode    string // central or agent
 	// Loc is the timezone times are shown in (the profile's).
-	Loc  *time.Location
-	now  func() time.Time
-	tmpl *template.Template
+	Loc *time.Location
+	// TokenSecret and TokenNamespace name the Secret holding AUTH_TOKEN, for
+	// the hint on the login page; empty TokenSecret hides the hint.
+	TokenSecret    string
+	TokenNamespace string
+	now            func() time.Time
+	tmpl           *template.Template
 }
 
 func New(checks Checks, f Findings, sessions *Sessions, title, version, mode string, loc *time.Location) *UI {
@@ -66,7 +73,7 @@ func New(checks Checks, f Findings, sessions *Sessions, title, version, mode str
 		"list":      func(s ...string) []string { return s },
 		"date":      func(t time.Time) string { return t.Format("2006-01-02") },
 		"isZero":    func(t time.Time) bool { return t.IsZero() },
-		"bandClass": func(s string) string { return "b-" + s },
+		"bandClass": func(s string) string { return "severity-" + s },
 		"deref": func(v *float64) string {
 			if v == nil {
 				return ""
@@ -81,6 +88,11 @@ func New(checks Checks, f Findings, sessions *Sessions, title, version, mode str
 // Register adds the UI routes.
 func (u *UI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/ui/", http.StatusFound) })
+	mux.HandleFunc("GET /ui/static/favicon.png", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		_, _ = w.Write(favicon)
+	})
 	mux.HandleFunc("GET /ui/login", u.loginPage)
 	mux.HandleFunc("POST /ui/login", u.sameOrigin(u.login))
 	mux.HandleFunc("POST /ui/logout", u.sameOrigin(u.logout))
@@ -157,9 +169,19 @@ func (u *UI) loginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/", http.StatusFound)
 		return
 	}
+	hint := ""
+	if u.TokenSecret != "" {
+		ns := u.TokenNamespace
+		if ns == "" {
+			ns = "<namespace>"
+		}
+		hint = fmt.Sprintf("kubectl -n %s get secret %s -o jsonpath='{.data.auth-token}' | base64 -d", ns, u.TokenSecret)
+	}
 	u.render(w, r, "login.html", map[string]any{
 		"Enabled": u.Sessions.Enabled(),
 		"Next":    safeNext(r.URL.Query().Get("next")),
+		"Secret":  u.TokenSecret,
+		"Hint":    hint,
 	})
 }
 

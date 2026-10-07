@@ -31,6 +31,8 @@ _env = [
         valueFrom: {fieldRef: {fieldPath: "metadata.namespace"}}
     }
     _secretEnv("AUTH_TOKEN", "token", "auth-token")
+    # Named on the login page, where to find the token.
+    {name: "AUTH_TOKEN_SECRET", value: "{}-token".format(config.name)}
 ] + ([
     {name: "REDIS_ADDR", value: config.redisAddr}
     {name: "REDIS_PORT", value: config.redisPort}
