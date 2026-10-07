@@ -332,7 +332,7 @@ func (s *Service) renderFinding(e Event, now time.Time) pitcher.Message {
 	case ChangeResolved:
 		// Same alert name, so a Grafana-style output pairs it with the alarm.
 		severity, resolved = "success", true
-		lines = append(lines, fmt.Sprintf("Resolved after %s (was %s).", Age(f.ResolvedAt.Sub(f.OpenSince())), f.Severity))
+		lines = append(lines, fmt.Sprintf("%s (was %s).", resolvedAfter(f.ResolvedAt.Sub(f.OpenSince())), f.Severity))
 	}
 	if f.Value != nil {
 		v := fmt.Sprintf("Value: %g", *f.Value)
@@ -357,6 +357,14 @@ func (s *Service) renderFinding(e Event, now time.Time) pitcher.Message {
 		Assignee:  s.cfg.Assignee,
 		At:        now,
 	}
+}
+
+// resolvedAfter reads "Resolved within a minute" or "Resolved after 5 hours".
+func resolvedAfter(d time.Duration) string {
+	if d < time.Minute {
+		return "Resolved within a minute"
+	}
+	return "Resolved after " + Age(d)
 }
 
 func (s *Service) renderDigest(d Digest) pitcher.Message {
