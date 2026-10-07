@@ -223,6 +223,7 @@ default, `spec.findings.officeHours`):
 | When | What |
 |---|---|
 | immediately | `critical` (any time), new or worse `error` (inside office hours) |
+| immediately | the **resolution** of a finding that was pitched immediately (`success`, Grafana `resolved`, same fingerprint), at any time, so an alarm in the channel gets its all-clear; the hourly update does not repeat it |
 | hourly 09:00–17:00 | one message with what is new, reopened, worse, acknowledgement expired or resolved since the last one; nothing new means no message |
 | 08:00 | start of day: everything open, oldest first with age, and what the night brought or resolved |
 | 18:00 | end of day: resolved today, still open |

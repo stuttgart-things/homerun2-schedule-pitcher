@@ -25,7 +25,11 @@ type Message struct {
 	Severity  string
 	// Resolved marks a resolution (grafana status "resolved").
 	Resolved bool
+	// CheckID is set for messages about a check, Source and Key for
+	// findings; they become the labels/tags check= or source= and key=.
 	CheckID  string
+	Source   string
+	Key      string
 	Type     string
 	System   string
 	Tags     []string
@@ -94,7 +98,8 @@ func Render(n state.Notification, c profile.Check, system string) Message {
 
 // HomerunMessage maps a message to the generic omni-pitcher /pitch body.
 func (m Message) HomerunMessage() homerun.Message {
-	tags := append([]string{"check=" + m.CheckID, "type=" + m.Type}, m.Tags...)
+	tags := append(m.identity(), "type="+m.Type)
+	tags = append(tags, m.Tags...)
 	return homerun.Message{
 		Title:        m.Title,
 		Message:      m.Text,
@@ -106,6 +111,21 @@ func (m Message) HomerunMessage() homerun.Message {
 		AssigneeName: m.Assignee,
 		URL:          m.URL,
 	}
+}
+
+// identity returns check=<id>, or source=<source> and key=<key>.
+func (m Message) identity() []string {
+	var out []string
+	if m.CheckID != "" {
+		out = append(out, "check="+m.CheckID)
+	}
+	if m.Source != "" {
+		out = append(out, "source="+m.Source)
+	}
+	if m.Key != "" {
+		out = append(out, "key="+m.Key)
+	}
+	return out
 }
 
 func subject(c profile.Check, n state.Notification) string {

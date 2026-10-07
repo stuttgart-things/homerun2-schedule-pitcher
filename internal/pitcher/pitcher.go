@@ -165,8 +165,14 @@ func GrafanaPayload(m Message) GrafanaWebhook {
 	labels := map[string]string{
 		"alertname": m.Title,
 		"severity":  m.Severity,
-		"check":     m.CheckID,
 		"type":      m.Type,
+	}
+	common := map[string]string{}
+	for k, v := range map[string]string{"check": m.CheckID, "source": m.Source, "key": m.Key} {
+		if v != "" {
+			labels[k] = v
+			common[k] = v
+		}
 	}
 	if len(m.Tags) > 0 {
 		labels["tags"] = strings.Join(m.Tags, ",")
@@ -190,7 +196,7 @@ func GrafanaPayload(m Message) GrafanaWebhook {
 		Receiver:     m.System,
 		Status:       st,
 		Alerts:       []GrafanaAlert{alert},
-		CommonLabels: map[string]string{"check": m.CheckID},
+		CommonLabels: common,
 		Title:        m.Title,
 		Message:      m.Text,
 	}

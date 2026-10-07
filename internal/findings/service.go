@@ -118,7 +118,11 @@ func (s *Service) Ingest(ctx context.Context, r Report) (IngestResult, error) {
 				continue
 			}
 			f := e.Finding
-			f.NotifiedAt = now
+			if e.Change == ChangeResolved {
+				f.ResolvedNotifiedAt = now
+			} else {
+				f.NotifiedAt = now
+			}
 			notified = append(notified, f)
 			res.Pitched++
 		}
@@ -319,11 +323,16 @@ func (s *Service) renderFinding(e Event, now time.Time) pitcher.Message {
 	if f.Message != "" {
 		lines = append(lines, f.Message)
 	}
+	severity, resolved := f.Severity, false
 	switch e.Change {
 	case ChangeReopened:
 		lines = append(lines, "Reopened: this finding was resolved before.")
 	case ChangeWorse:
 		lines = append(lines, "Got worse.")
+	case ChangeResolved:
+		// Same alert name, so a Grafana-style output pairs it with the alarm.
+		severity, resolved = "success", true
+		lines = append(lines, fmt.Sprintf("Resolved after %s (was %s).", Age(f.ResolvedAt.Sub(f.OpenSince())), f.Severity))
 	}
 	if f.Value != nil {
 		v := fmt.Sprintf("Value: %g", *f.Value)
@@ -337,8 +346,10 @@ func (s *Service) renderFinding(e Event, now time.Time) pitcher.Message {
 		AlertName: "finding:" + f.ID(),
 		Title:     title,
 		Text:      strings.Join(lines, "\n"),
-		Severity:  f.Severity,
-		CheckID:   f.Source,
+		Severity:  severity,
+		Resolved:  resolved,
+		Source:    f.Source,
+		Key:       f.Key,
 		Type:      "finding",
 		System:    s.cfg.System,
 		Tags:      f.Tags,
@@ -354,7 +365,6 @@ func (s *Service) renderDigest(d Digest) pitcher.Message {
 		Title:     d.Title(),
 		Text:      d.Text(),
 		Severity:  d.Severity(),
-		CheckID:   "findings",
 		Type:      "findings-" + string(d.Kind),
 		System:    s.cfg.System,
 		Tags:      []string{"findings"},

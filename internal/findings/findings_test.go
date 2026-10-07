@@ -142,6 +142,10 @@ func TestImmediate(t *testing.T) {
 		{f(SeverityError), at(5, 3, 0), false},
 		{f(SeverityWarning), at(5, 10, 0), false},
 		{Event{Change: ChangeResolved, Finding: Finding{Severity: SeverityCritical}}, at(5, 10, 0), false},
+		// Pitched on its own in this open period: its resolution goes out at once, at night too.
+		{Event{Change: ChangeResolved, Finding: Finding{Severity: SeverityCritical, FirstSeen: at(5, 2, 0), NotifiedAt: at(5, 2, 0)}}, at(5, 3, 0), true},
+		// Pitched in an earlier open period only (reopened since): not immediate.
+		{Event{Change: ChangeResolved, Finding: Finding{Severity: SeverityCritical, FirstSeen: at(1, 2, 0), NotifiedAt: at(1, 2, 0), ReopenedAt: at(5, 2, 0)}}, at(5, 3, 0), false},
 	}
 	for _, tt := range tests {
 		if got := Immediate(tt.e, tt.now, hours); got != tt.want {
@@ -300,15 +304,29 @@ func TestServiceDay(t *testing.T) {
 		t.Fatalf("empty update sent: %s", rec.titles())
 	}
 
-	// 09:30 a fix resolves /var and / ; error in office hours would be immediate.
+	// 09:30 a fix resolves /var and / ; the new error is immediate in office
+	// hours, and so is the resolution of /, which was pitched at 04:00.
 	*now = at(5, 9, 30)
+	n := len(rec.msgs)
 	res, _ = s.Ingest(ctx, report(disk("/home", 72, "info"), disk("/opt", 92, "error")))
-	if res.Resolved != 2 || res.Pitched != 1 {
+	if res.Resolved != 2 || res.Pitched != 2 {
 		t.Fatalf("ingest = %+v", res)
 	}
+	var resolvedMsg, firingMsg pitcher.Message
+	for _, m := range rec.msgs[n:] {
+		if m.Resolved {
+			resolvedMsg = m
+		}
+	}
+	firingMsg = rec.msgs[0]
+	if resolvedMsg.Severity != "success" || resolvedMsg.AlertName != firingMsg.AlertName ||
+		!strings.Contains(resolvedMsg.Text, "Resolved after 5 hours (was critical)") || resolvedMsg.Source != "dev-maintenance" || resolvedMsg.Key != "dev4-vm/disk:/" {
+		t.Fatalf("resolution = %+v (firing %+v)", resolvedMsg, firingMsg)
+	}
+	// The update reports only /var; the resolution of / went out already.
 	*now = at(5, 10, 0)
 	_ = s.Tick(ctx)
-	if got := rec.msgs[len(rec.msgs)-1].Title; got != "Findings: 2 resolved" {
+	if got := rec.msgs[len(rec.msgs)-1].Title; got != "Findings: 1 resolved" {
 		t.Fatalf("update: %s", rec.titles())
 	}
 
@@ -442,5 +460,16 @@ func TestStores(t *testing.T) {
 	}
 	if !mr.Exists("p:findings") {
 		t.Error("index set missing")
+	}
+}
+
+func TestResolvedNotifiedOnlySkippedInUpdates(t *testing.T) {
+	f := Finding{Source: "s", Key: "k", Severity: "critical", Status: StatusResolved,
+		FirstSeen: at(5, 2, 0), NotifiedAt: at(5, 2, 0), ResolvedAt: at(5, 10, 30), ResolvedNotifiedAt: at(5, 10, 30)}
+	if d := Build(KindUpdate, []Finding{f}, at(5, 10, 0), at(5, 11, 0)); len(d.Resolved) != 0 {
+		t.Fatalf("update repeats a resolution already pitched: %+v", d.Resolved)
+	}
+	if d := Build(KindEndOfDay, []Finding{f}, at(5, 8, 0), at(5, 18, 0)); len(d.Resolved) != 1 {
+		t.Fatalf("end of day misses the resolution: %+v", d.Resolved)
 	}
 }

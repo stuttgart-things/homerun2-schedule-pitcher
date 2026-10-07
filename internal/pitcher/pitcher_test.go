@@ -79,6 +79,19 @@ func TestGrafanaPayload(t *testing.T) {
 	if failing.Alerts[0].Fingerprint == a.Fingerprint {
 		t.Error("could-not-check must have its own fingerprint")
 	}
+	if _, ok := a.Labels["source"]; ok {
+		t.Error("a check message must not carry a source label")
+	}
+
+	// Findings are labelled by source and key, not as a check.
+	f := GrafanaPayload(Message{Title: "t", Severity: "critical", Source: "disk-dev4", Key: "vm/disk:/", Type: "finding", At: now})
+	fl := f.Alerts[0].Labels
+	if fl["source"] != "disk-dev4" || fl["key"] != "vm/disk:/" || fl["check"] != "" || f.CommonLabels["source"] != "disk-dev4" {
+		t.Errorf("finding labels = %v common %v", fl, f.CommonLabels)
+	}
+	if hm := (Message{Source: "s", Key: "k", Type: "finding", At: now}).HomerunMessage(); hm.Tags != "source=s,key=k,type=finding" {
+		t.Errorf("finding tags = %q", hm.Tags)
+	}
 }
 
 func TestHTTPPitch(t *testing.T) {
