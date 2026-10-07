@@ -2,6 +2,8 @@
 package metrics
 
 import (
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 
@@ -25,6 +27,14 @@ var (
 		Name: "schedule_pitcher_check_expiry_seconds",
 		Help: "Seconds until the watched thing expires (negative when expired).",
 	}, []string{"check"})
+	heartbeat = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "schedule_pitcher_heartbeat_timestamp_seconds",
+		Help: "Unix time of the last heartbeat message; alert when it stops moving.",
+	})
+	sourceLastReport = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "schedule_pitcher_source_last_report_timestamp_seconds",
+		Help: "Unix time of the last findings report of a source.",
+	}, []string{"source"})
 	pitches = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "schedule_pitcher_pitch_total",
 		Help: "Pitched messages by result (success, error).",
@@ -35,7 +45,7 @@ var (
 var Registry = prometheus.NewRegistry()
 
 func init() {
-	Registry.MustRegister(lastRun, checkStatus, checkFailing, expiry, pitches,
+	Registry.MustRegister(lastRun, checkStatus, checkFailing, expiry, pitches, heartbeat, sourceLastReport,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 }
 
@@ -53,6 +63,14 @@ func ObserveState(s state.State) {
 	} else {
 		expiry.WithLabelValues(s.CheckID).Set(s.Expiry.Sub(s.LastRun).Seconds())
 	}
+}
+
+// Heartbeat records a heartbeat message.
+func Heartbeat(at time.Time) { heartbeat.Set(float64(at.Unix())) }
+
+// SourceReported records the last report of a findings source.
+func SourceReported(source string, at time.Time) {
+	sourceLastReport.WithLabelValues(source).Set(float64(at.Unix()))
 }
 
 // Pitched counts a pitch attempt.

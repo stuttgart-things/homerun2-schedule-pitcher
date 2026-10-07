@@ -73,6 +73,9 @@ spec:
 	if f := p.Spec.Findings; *f.OfficeHours.Start != 8 || *f.OfficeHours.End != 18 || f.AckExpiry.D() != 3*day || f.Retention.D() != 7*day {
 		t.Errorf("findings defaults = %+v", f)
 	}
+	if hb := p.Spec.Heartbeat; !hb.On() || hb.Schedule != DefaultHeartbeatSchedule || hb.StaleAfter.D() != 13*time.Hour {
+		t.Errorf("heartbeat defaults = %+v", hb)
+	}
 	if p.Spec.Defaults.System != DefaultSystem {
 		t.Errorf("system = %q", p.Spec.Defaults.System)
 	}
@@ -157,6 +160,7 @@ func TestParseErrors(t *testing.T) {
 		{"vault without addr", head + "spec:\n  checks:\n    - {id: a, type: vault-token-ttl, tokenFrom: {env: X}}\n", "addr is required"},
 		{"vault without token", head + "spec:\n  checks:\n    - {id: a, type: vault-token-ttl, addr: 'https://v:8200'}\n", "tokenFrom is required"},
 		{"bad timezone", head + "spec:\n  defaults: { timezone: Mars/Base }\n", "timezone"},
+		{"heartbeat schedule", head + "spec:\n  heartbeat: { schedule: 'daily' }\n", "spec.heartbeat.schedule"},
 		{"office hours", head + "spec:\n  findings: { officeHours: { start: 18, end: 8 } }\n", "officeHours"},
 	}
 	for _, tt := range tests {

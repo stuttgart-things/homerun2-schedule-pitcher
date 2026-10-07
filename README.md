@@ -141,6 +141,28 @@ sops -d clusters/labul/vsphere/platform-sthings/apps/homerun2-schedule-pitcher-s
 valid for 12 hours; rotating `AUTH_TOKEN` ends all sessions. Pages are
 server-rendered and need no JavaScript. Cross-site form posts are rejected.
 
+## Heartbeat and watchdog
+
+Who watches the watcher (central instance, on by default):
+
+- **Heartbeat:** a daily `info` message "schedule-pitcher alive" (default 08:00) with version, checks (total / not ok), open findings by severity and when each source last reported. Metric `schedule_pitcher_heartbeat_timestamp_seconds`: alert elsewhere (Grafana, scout) when it stops moving, e.g. `time() - schedule_pitcher_heartbeat_timestamp_seconds > 26*3600`.
+- **Watchdog:** the central instance records every source's last report (`schedule_pitcher_source_last_report_timestamp_seconds{source}`). An agent source (`checks-*`) silent for longer than `staleAfter` becomes a `warning` finding "No report from checks-sthings-infra for 14 hours" (source `schedule-pitcher-watchdog`). It resolves by itself once the agent reports again. Other sources, e.g. daily cron jobs, are watched only when listed.
+
+```yaml
+spec:
+  heartbeat:
+    schedule: "0 8 * * *"   # alive message
+    staleAfter: 13h         # agents (checks-*): two missed 6-hourly runs
+    sources:
+      disk-dev4: 26h        # a daily cron job
+    # enabled: false
+```
+
+> The heartbeat is `info`. The platform's notification-catcher forwards
+> grafana-format messages to Teams only from `warning` up and `success`, so
+> `info` needs its own output (`system: homerun2-schedule-pitcher`,
+> `severity: info`).
+
 ## Discovery
 
 With `spec.discovery.enabled` an instance (usually an agent) turns every

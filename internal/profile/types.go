@@ -29,7 +29,27 @@ type Spec struct {
 	Report ReportConfig `yaml:"report"`
 	// Discovery turns labelled Secrets into checks.
 	Discovery Discovery `yaml:"discovery"`
+	// Heartbeat: daily alive message and the watchdog for silent agents
+	// (central instance only).
+	Heartbeat Heartbeat `yaml:"heartbeat"`
 }
+
+// Heartbeat configures who watches the watcher.
+type Heartbeat struct {
+	// Enabled defaults to true.
+	Enabled *bool `yaml:"enabled"`
+	// Schedule of the alive message (default "0 8 * * *").
+	Schedule string `yaml:"schedule"`
+	// StaleAfter: a checks-* source (an agent) silent for longer is reported
+	// (default 13h, two missed 6-hourly runs).
+	StaleAfter Duration `yaml:"staleAfter"`
+	// Sources sets the limit per source, also for sources that are not
+	// agents (e.g. a daily cron job: 26h).
+	Sources map[string]Duration `yaml:"sources"`
+}
+
+// On reports whether the heartbeat is enabled.
+func (h Heartbeat) On() bool { return h.Enabled == nil || *h.Enabled }
 
 // Discovery scans Secrets for tokens to watch.
 type Discovery struct {

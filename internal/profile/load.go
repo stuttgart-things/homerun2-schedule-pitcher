@@ -33,6 +33,9 @@ const (
 	DefaultRetention   = 7 * 24 * time.Hour
 
 	DefaultDiscoverySelector = "homerun2.sthings.io/watch-expiry in (true,github-token,vault-token)"
+
+	DefaultHeartbeatSchedule = "0 8 * * *"
+	DefaultStaleAfter        = 13 * time.Hour
 	DefaultDiscoveryInterval = time.Hour
 )
 
@@ -155,6 +158,14 @@ func applyDefaults(p *SchedulePitcherProfile) {
 	p.userThresholds = d.Thresholds
 	d.Thresholds = mergeThresholds(d.Thresholds, DefaultThresholds)
 
+	hb := &s.Heartbeat
+	if hb.Schedule == "" {
+		hb.Schedule = DefaultHeartbeatSchedule
+	}
+	if hb.StaleAfter == 0 {
+		hb.StaleAfter = Duration(DefaultStaleAfter)
+	}
+
 	dc := &s.Discovery
 	if dc.LabelSelector == "" {
 		dc.LabelSelector = DefaultDiscoverySelector
@@ -266,6 +277,14 @@ func validate(p *SchedulePitcherProfile) error {
 		add("spec.findings.officeHours: need 0 <= start < end <= 23 with at least one hour between (got %d-%d)", *oh.Start, *oh.End)
 	}
 
+	if _, err := CronParser.Parse(s.Heartbeat.Schedule); err != nil {
+		add("spec.heartbeat.schedule %q: %v", s.Heartbeat.Schedule, err)
+	}
+	for src, d := range s.Heartbeat.Sources {
+		if d <= 0 {
+			add("spec.heartbeat.sources.%s must be positive", src)
+		}
+	}
 	if s.Discovery.Enabled {
 		if _, err := labels.Parse(s.Discovery.LabelSelector); err != nil {
 			add("spec.discovery.labelSelector: %v", err)

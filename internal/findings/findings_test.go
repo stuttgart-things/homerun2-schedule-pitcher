@@ -448,6 +448,10 @@ func TestStores(t *testing.T) {
 			if _, ok, _ := st.Get(ctx, "dev", a.Key); ok {
 				t.Fatal("not deleted")
 			}
+			_ = st.TouchSource(ctx, "checks-x", at(5, 9, 0))
+			if src, err := st.Sources(ctx); err != nil || !src["checks-x"].Equal(at(5, 9, 0)) {
+				t.Fatalf("Sources = %v, %v", src, err)
+			}
 			d := Delivery{LastUpdate: at(5, 10, 0)}
 			_ = st.PutDelivery(ctx, d)
 			if got, _ := st.GetDelivery(ctx); !got.LastUpdate.Equal(d.LastUpdate) {
@@ -480,5 +484,85 @@ func TestResolvedNotifiedOnlySkippedInUpdates(t *testing.T) {
 	}
 	if d := Build(KindEndOfDay, []Finding{f}, at(5, 8, 0), at(5, 18, 0)); len(d.Resolved) != 1 {
 		t.Fatalf("end of day misses the resolution: %+v", d.Resolved)
+	}
+}
+
+func newHeartbeatService(t *testing.T) (*Service, *recorder, *time.Time) {
+	t.Helper()
+	s, rec, now := newService(t, NewMemory())
+	s.cfg.Heartbeat = HeartbeatConfig{
+		Enabled: true, StaleAfter: 13 * time.Hour, Sources: map[string]time.Duration{"disk-dev4": 26 * time.Hour},
+		Name: "platform-sthings", Status: func(context.Context) []string { return []string{"Checks: 3, not ok: 0"} },
+	}
+	return s, rec, now
+}
+
+func TestWatchdog(t *testing.T) {
+	ctx := context.Background()
+	s, _, now := newHeartbeatService(t)
+
+	// An agent and a cron job report at 04:00; an unwatched source too.
+	_, _ = s.Ingest(ctx, Report{Source: "checks-sthings-infra"})
+	_, _ = s.Ingest(ctx, Report{Source: "disk-dev4"})
+	_, _ = s.Ingest(ctx, Report{Source: "teams-test"})
+
+	// 16:00: the agent is silent for 12h, under its 13h limit.
+	*now = at(5, 16, 0)
+	_ = s.Tick(ctx)
+	if open, _ := s.List(ctx, "open", WatchdogSource); len(open) != 0 {
+		t.Fatalf("watchdog too early: %+v", open)
+	}
+
+	// 18:00: 14h silent -> warning finding; the 26h cron job and the
+	// unwatched source are not reported.
+	*now = at(5, 18, 0)
+	_ = s.Tick(ctx)
+	open, _ := s.List(ctx, "open", WatchdogSource)
+	if len(open) != 1 || open[0].Key != "checks-sthings-infra" || open[0].Severity != SeverityWarning ||
+		open[0].Title != "No report from checks-sthings-infra for 14 hours" {
+		t.Fatalf("watchdog findings = %+v", open)
+	}
+
+	// The agent reports again: the watchdog finding resolves on the next tick.
+	*now = at(5, 19, 0)
+	_, _ = s.Ingest(ctx, Report{Source: "checks-sthings-infra"})
+	*now = at(5, 20, 0)
+	_ = s.Tick(ctx)
+	if open, _ := s.List(ctx, "open", WatchdogSource); len(open) != 0 {
+		t.Fatalf("watchdog did not resolve: %+v", open)
+	}
+}
+
+func TestHeartbeat(t *testing.T) {
+	ctx := context.Background()
+	s, rec, now := newHeartbeatService(t)
+	_, _ = s.Ingest(ctx, report(disk("/var", 74, "info"), disk("/home", 88, "warning")))
+	_, _ = s.Ingest(ctx, Report{Source: "checks-sthings-infra"})
+
+	*now = at(6, 8, 0) // the agent is 28h silent by now
+	if err := s.Heartbeat(ctx); err != nil {
+		t.Fatal(err)
+	}
+	m := rec.msgs[len(rec.msgs)-1]
+	if m.Title != "schedule-pitcher alive · platform-sthings" || m.Severity != SeverityInfo || m.Type != "heartbeat" {
+		t.Fatalf("heartbeat = %+v", m)
+	}
+	for _, want := range []string{"Checks: 3, not ok: 0", "Open findings: 2 (warning 1, info 1)",
+		"- checks-sthings-infra: 1 day ago (SILENT)", "- dev-maintenance: 1 day ago"} {
+		if !strings.Contains(m.Text, want) {
+			t.Errorf("heartbeat text misses %q:\n%s", want, m.Text)
+		}
+	}
+	// Once per hour, also after a restart or with a second replica.
+	n := len(rec.msgs)
+	_ = s.Heartbeat(ctx)
+	if len(rec.msgs) != n {
+		t.Fatal("heartbeat sent twice in the same hour")
+	}
+	// A failed delivery is retried by the next schedule.
+	rec.err = errors.New("omni down")
+	*now = at(7, 8, 0)
+	if err := s.Heartbeat(ctx); err == nil {
+		t.Fatal("expected an error")
 	}
 }
