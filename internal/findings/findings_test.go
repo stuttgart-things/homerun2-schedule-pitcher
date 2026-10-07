@@ -463,6 +463,15 @@ func TestStores(t *testing.T) {
 	}
 }
 
+func TestResolvedAfter(t *testing.T) {
+	if got := resolvedAfter(10 * time.Second); got != "Resolved within a minute" {
+		t.Errorf("got %q", got)
+	}
+	if got := resolvedAfter(5 * time.Hour); got != "Resolved after 5 hours" {
+		t.Errorf("got %q", got)
+	}
+}
+
 func TestResolvedNotifiedOnlySkippedInUpdates(t *testing.T) {
 	f := Finding{Source: "s", Key: "k", Severity: "critical", Status: StatusResolved,
 		FirstSeen: at(5, 2, 0), NotifiedAt: at(5, 2, 0), ResolvedAt: at(5, 10, 30), ResolvedNotifiedAt: at(5, 10, 30)}
