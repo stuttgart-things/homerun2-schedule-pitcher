@@ -4,6 +4,7 @@
   {{if .HasFindings}}
   <div class="stat"><span class="label">Open findings</span><b>{{len $d.Open}}</b></div>
   <div class="stat"><span class="label">Acknowledged</span><b>{{len $d.Acknowledged}}</b></div>
+  <div class="stat"><span class="label">Resolved (24h)</span><b class="severity-success">{{$d.ResolvedCount}}</b></div>
   {{range $sev := (list "critical" "error" "warning" "info")}}{{with index $d.Counts $sev}}<div class="stat"><span class="{{bandClass $sev}}">{{$sev}}</span><b>{{.}}</b></div>{{end}}{{end}}
   {{end}}
   <div class="stat"><span class="label">Checks</span><b>{{len $d.Checks}}</b></div>
@@ -49,6 +50,25 @@
 {{end}}
 </table></div>
 {{end}}
+
+<h2>Recently resolved <span class="muted small">(last 24 h{{if gt $d.ResolvedCount (len $d.Resolved)}}, newest {{len $d.Resolved}} of {{$d.ResolvedCount}}{{end}} · <a href="/ui/resolved">all</a>)</span></h2>
+<div class="overflow-auto">
+{{if $d.Resolved}}
+<table>
+<tr><th>Severity</th><th>Finding</th><th>Host</th><th>Source</th><th>Resolved</th><th>Was open for</th></tr>
+{{range $d.Resolved}}
+<tr>
+  <td><span class="severity-success">resolved</span><div class="small {{bandClass .Severity}}">was {{.Severity}}</div></td>
+  <td>{{if .URL}}<a href="{{.URL}}" target="_blank" rel="noopener">{{.Title}}</a>{{else}}{{.Title}}{{end}}{{if .AckBy}}<div class="muted small">acknowledged by {{.AckBy}}{{if .AckNote}}: {{.AckNote}}{{end}}</div>{{end}}</td>
+  <td class="small">{{.Host}}</td>
+  <td class="small">{{.Source}}</td>
+  <td class="small nowrap">{{when .ResolvedAt}}<div class="muted">{{age .ResolvedAt}} ago</div></td>
+  <td class="small nowrap">{{span .OpenSince .ResolvedAt}}</td>
+</tr>
+{{end}}
+</table>
+{{else}}<p class="muted">Nothing resolved in the last 24 hours.</p>{{end}}
+</div>
 {{end}}
 
 <h2>Checks</h2>
