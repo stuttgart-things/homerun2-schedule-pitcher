@@ -211,12 +211,22 @@ func (u *UI) logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/ui/login", http.StatusSeeOther)
 }
 
+// recentWindow is how far back the overview lists resolved findings.
+const recentWindow = 24 * time.Hour
+
+// recentMax bounds the resolved findings on the overview.
+const recentMax = 15
+
 type dashboard struct {
 	Open, Acknowledged []findings.Finding
-	Counts             map[string]int
-	Checks             []scheduler.CheckStatus
-	ChecksBad          int
-	FindingsErr        string
+	// Resolved are the findings resolved within recentWindow, newest
+	// first, at most recentMax; ResolvedCount counts all of them.
+	Resolved      []findings.Finding
+	ResolvedCount int
+	Counts        map[string]int
+	Checks        []scheduler.CheckStatus
+	ChecksBad     int
+	FindingsErr   string
 }
 
 func (u *UI) dashboard(w http.ResponseWriter, r *http.Request) {
@@ -246,6 +256,21 @@ func (u *UI) dashboard(w http.ResponseWriter, r *http.Request) {
 			} else {
 				d.Open = append(d.Open, f)
 			}
+		}
+		resolved, err := u.Findings.List(r.Context(), findings.StatusResolved, "")
+		if err != nil && d.FindingsErr == "" {
+			d.FindingsErr = err.Error()
+		}
+		since := u.now().Add(-recentWindow)
+		for _, f := range resolved {
+			if f.ResolvedAt.After(since) {
+				d.Resolved = append(d.Resolved, f)
+			}
+		}
+		slices.SortFunc(d.Resolved, func(a, b findings.Finding) int { return b.ResolvedAt.Compare(a.ResolvedAt) })
+		d.ResolvedCount = len(d.Resolved)
+		if len(d.Resolved) > recentMax {
+			d.Resolved = d.Resolved[:recentMax]
 		}
 	}
 	u.render(w, r, "dashboard.html", d)

@@ -173,7 +173,8 @@ func TestPages(t *testing.T) {
 	c := login(t, mux)
 
 	body := do(mux, http.MethodGet, "/ui/", nil, c, "").Body.String()
-	for _, want := range []string{"/var at 74% &lt;script&gt;", "on it", "patrick.hermann", "Run now", "discovered", "in 20 days", ">Resolved<"} {
+	for _, want := range []string{"/var at 74% &lt;script&gt;", "on it", "patrick.hermann", "Run now", "discovered", "in 20 days", ">Resolved<",
+		"Recently resolved", "gone &lt;b&gt;", "was info", "Resolved (24h)"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dashboard misses %q", want)
 		}
