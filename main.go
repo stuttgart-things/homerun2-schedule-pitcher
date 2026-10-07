@@ -162,7 +162,9 @@ func serve(cfg config.Config, args []string) error {
 	if fsvc != nil {
 		uiFindings, mode = fsvc, "central"
 	}
-	ui.New(sched, uiFindings, ui.NewSessions(cfg.AuthToken), prof.Metadata.Name, version, mode, prof.Location()).Register(mux)
+	webUI := ui.New(sched, uiFindings, ui.NewSessions(cfg.AuthToken), prof.Metadata.Name, version, mode, prof.Location())
+	webUI.TokenSecret, webUI.TokenNamespace = cfg.AuthTokenSecret, cfg.PodNamespace
+	webUI.Register(mux)
 	if cfg.AuthToken == "" {
 		slog.Warn("AUTH_TOKEN is not set: the API rejects every request and the UI login is disabled")
 	}
