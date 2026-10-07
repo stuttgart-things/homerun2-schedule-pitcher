@@ -30,7 +30,25 @@ type Config struct {
 	Retention time.Duration
 	System    string
 	Assignee  string
+	Heartbeat HeartbeatConfig
 }
+
+// HeartbeatConfig: daily alive message and the watchdog for silent sources.
+type HeartbeatConfig struct {
+	Enabled  bool
+	Schedule cron.Schedule
+	// StaleAfter applies to agent sources (prefix checks-).
+	StaleAfter time.Duration
+	// Sources: limits per source, also for non-agent sources.
+	Sources map[string]time.Duration
+	// Name of this instance (the profile name) for the message title.
+	Name string
+	// Status adds lines about the checks of this instance.
+	Status func(ctx context.Context) []string
+}
+
+// WatchdogSource is the findings source of "no report from ..." findings.
+const WatchdogSource = "schedule-pitcher-watchdog"
 
 // ErrBusy is returned when a report of the same source is being applied.
 var ErrBusy = errors.New("a report of this source is being processed")
@@ -94,6 +112,10 @@ func (s *Service) Ingest(ctx context.Context, r Report) (IngestResult, error) {
 		if err := s.store.Save(ctx, updated...); err != nil {
 			return err
 		}
+		if err := s.store.TouchSource(ctx, r.Source, now); err != nil {
+			slog.Warn("recording the report time failed", "source", r.Source, "error", err)
+		}
+		metrics.SourceReported(r.Source, now)
 
 		var notified []Finding
 		for _, e := range events {
@@ -197,6 +219,13 @@ func (s *Service) Start(ctx context.Context) {
 			slog.Error("findings delivery failed", "error", err)
 		}
 	})
+	if hb := s.cfg.Heartbeat; hb.Enabled && hb.Schedule != nil {
+		c.Schedule(hb.Schedule, cron.FuncJob(func() {
+			if err := s.Heartbeat(ctx); err != nil && !errors.Is(err, ErrBusy) {
+				slog.Error("heartbeat failed", "error", err)
+			}
+		}))
+	}
 	c.Start()
 	go func() {
 		<-ctx.Done()
@@ -212,6 +241,10 @@ func (s *Service) Tick(ctx context.Context) error {
 		now := s.now().In(s.cfg.Hours.Loc)
 		if err := s.housekeeping(ctx, now); err != nil {
 			return err
+		}
+		// Before the digest, so an update already carries a silent source.
+		if err := s.watchdog(ctx, now); err != nil {
+			slog.Error("watchdog failed", "error", err)
 		}
 		d, err := s.store.GetDelivery(ctx)
 		if err != nil {
@@ -275,6 +308,159 @@ func (s *Service) due(d Delivery, now time.Time) (DigestKind, time.Time) {
 		return KindUpdate, since
 	}
 	return "", time.Time{}
+}
+
+// staleLimit returns how long a source may stay silent, and whether it is
+// watched at all: listed sources, and agents (checks-*) by default.
+func (s *Service) staleLimit(source string) (time.Duration, bool) {
+	hb := s.cfg.Heartbeat
+	if d, ok := hb.Sources[source]; ok {
+		return d, true
+	}
+	if strings.HasPrefix(source, "checks-") && hb.StaleAfter > 0 {
+		return hb.StaleAfter, true
+	}
+	return 0, false
+}
+
+// watchdog reports watched sources that have been silent too long, as the
+// complete set of the watchdog source, so they resolve once a report comes.
+func (s *Service) watchdog(ctx context.Context, now time.Time) error {
+	if !s.cfg.Heartbeat.Enabled {
+		return nil
+	}
+	sources, err := s.store.Sources(ctx)
+	if err != nil {
+		return err
+	}
+	r := Report{Source: WatchdogSource, Run: "watchdog-" + now.UTC().Format("20060102T1504Z")}
+	names := make([]string, 0, len(sources))
+	for src := range sources {
+		names = append(names, src)
+	}
+	slices.Sort(names)
+	for _, src := range names {
+		limit, watched := s.staleLimit(src)
+		silent := now.Sub(sources[src])
+		if !watched || src == WatchdogSource || silent <= limit {
+			continue
+		}
+		r.Findings = append(r.Findings, ReportedItem{
+			Key:      src,
+			Title:    fmt.Sprintf("No report from %s for %s", src, Age(silent)),
+			Severity: SeverityWarning,
+			Message: fmt.Sprintf("Last report %s (limit %s). The agent or job may be down, or cannot reach the central instance.",
+				sources[src].In(s.cfg.Hours.Loc).Format("2006-01-02 15:04"), Age(limit)),
+			Tags: []string{"watchdog"},
+		})
+	}
+	// Nothing was ever silent: no need to create the watchdog source.
+	if len(r.Findings) == 0 {
+		if _, seen := sources[WatchdogSource]; !seen {
+			return nil
+		}
+	}
+	_, err = s.Ingest(ctx, r)
+	return err
+}
+
+// Heartbeat sends the daily alive message: checks, open findings and when
+// each source last reported. At most once per hour, also with replicas.
+func (s *Service) Heartbeat(ctx context.Context) error {
+	return s.withLock(ctx, "heartbeat", func() error {
+		now := s.now().In(s.cfg.Hours.Loc)
+		d, err := s.store.GetDelivery(ctx)
+		if err != nil {
+			return err
+		}
+		if sameHour(d.LastHeartbeat, now) {
+			return nil
+		}
+		m, err := s.renderHeartbeat(ctx, now)
+		if err != nil {
+			return err
+		}
+		err = s.pitcher.Pitch(ctx, m)
+		metrics.Pitched(err)
+		if err != nil {
+			return fmt.Errorf("pitching heartbeat: %w", err)
+		}
+		metrics.Heartbeat(now)
+		d.LastHeartbeat = now
+		slog.Info("heartbeat pitched")
+		return s.store.PutDelivery(ctx, d)
+	})
+}
+
+func (s *Service) renderHeartbeat(ctx context.Context, now time.Time) (pitcher.Message, error) {
+	hb := s.cfg.Heartbeat
+	var lines []string
+	if hb.Status != nil {
+		lines = append(lines, hb.Status(ctx)...)
+	}
+	open, err := s.List(ctx, "open", "")
+	if err != nil {
+		return pitcher.Message{}, err
+	}
+	counts := map[string]int{}
+	acked := 0
+	for _, f := range open {
+		counts[f.Severity]++
+		if f.Status == StatusAcknowledged {
+			acked++
+		}
+	}
+	var parts []string
+	for _, sev := range []string{SeverityCritical, SeverityError, SeverityWarning, SeverityInfo} {
+		if counts[sev] > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d", sev, counts[sev]))
+		}
+	}
+	line := fmt.Sprintf("Open findings: %d", len(open))
+	if len(parts) > 0 {
+		line += " (" + strings.Join(parts, ", ") + ")"
+	}
+	if acked > 0 {
+		line += fmt.Sprintf(", %d acknowledged", acked)
+	}
+	lines = append(lines, line)
+
+	sources, err := s.store.Sources(ctx)
+	if err != nil {
+		return pitcher.Message{}, err
+	}
+	names := make([]string, 0, len(sources))
+	for src := range sources {
+		if src != WatchdogSource {
+			names = append(names, src)
+		}
+	}
+	slices.Sort(names)
+	if len(names) > 0 {
+		lines = append(lines, "Last reports:")
+		for _, src := range names {
+			l := fmt.Sprintf("- %s: %s ago", src, Age(now.Sub(sources[src])))
+			if limit, watched := s.staleLimit(src); watched && now.Sub(sources[src]) > limit {
+				l += " (SILENT)"
+			}
+			lines = append(lines, l)
+		}
+	}
+	title := "schedule-pitcher alive"
+	if hb.Name != "" {
+		title += " · " + hb.Name
+	}
+	return pitcher.Message{
+		AlertName: "heartbeat",
+		Title:     title,
+		Text:      strings.Join(lines, "\n"),
+		Severity:  SeverityInfo,
+		Type:      "heartbeat",
+		System:    s.cfg.System,
+		Tags:      []string{"heartbeat"},
+		Assignee:  s.cfg.Assignee,
+		At:        now,
+	}, nil
 }
 
 func sameDay(a, b time.Time) bool {

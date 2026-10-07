@@ -17,6 +17,7 @@ type Delivery struct {
 	LastUpdate     time.Time `json:"lastUpdate,omitzero"`
 	LastStartOfDay time.Time `json:"lastStartOfDay,omitzero"`
 	LastEndOfDay   time.Time `json:"lastEndOfDay,omitzero"`
+	LastHeartbeat  time.Time `json:"lastHeartbeat,omitzero"`
 }
 
 // Store persists findings.
@@ -28,6 +29,10 @@ type Store interface {
 	Delete(ctx context.Context, fs ...Finding) error
 	GetDelivery(ctx context.Context) (Delivery, error)
 	PutDelivery(ctx context.Context, d Delivery) error
+	// TouchSource records that a source reported at at.
+	TouchSource(ctx context.Context, source string, at time.Time) error
+	// Sources returns when each source last reported.
+	Sources(ctx context.Context) (map[string]time.Time, error)
 }
 
 // Memory keeps findings in the process (no-Redis mode, tests).
@@ -35,9 +40,29 @@ type Memory struct {
 	mu       sync.Mutex
 	findings map[string]Finding
 	delivery Delivery
+	sources  map[string]time.Time
 }
 
-func NewMemory() *Memory { return &Memory{findings: map[string]Finding{}} }
+func NewMemory() *Memory {
+	return &Memory{findings: map[string]Finding{}, sources: map[string]time.Time{}}
+}
+
+func (m *Memory) TouchSource(_ context.Context, source string, at time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sources[source] = at
+	return nil
+}
+
+func (m *Memory) Sources(context.Context) (map[string]time.Time, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]time.Time, len(m.sources))
+	for k, v := range m.sources {
+		out[k] = v
+	}
+	return out, nil
+}
 
 func (m *Memory) List(_ context.Context, source string) ([]Finding, error) {
 	m.mu.Lock()
@@ -108,6 +133,27 @@ func (r *Redis) key(source, key string) string {
 }
 func (r *Redis) indexKey() string    { return r.prefix + ":findings" }
 func (r *Redis) deliveryKey() string { return r.prefix + ":findings:delivery" }
+func (r *Redis) sourcesKey() string  { return r.prefix + ":findings:sources" }
+
+func (r *Redis) TouchSource(ctx context.Context, source string, at time.Time) error {
+	return r.client.HSet(ctx, r.sourcesKey(), source, at.UTC().Format(time.RFC3339Nano)).Err()
+}
+
+func (r *Redis) Sources(ctx context.Context) (map[string]time.Time, error) {
+	h, err := r.client.HGetAll(ctx, r.sourcesKey()).Result()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]time.Time, len(h))
+	for k, v := range h {
+		t, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			continue
+		}
+		out[k] = t
+	}
+	return out, nil
+}
 
 func (r *Redis) List(ctx context.Context, source string) ([]Finding, error) {
 	keys, err := r.client.SMembers(ctx, r.indexKey()).Result()

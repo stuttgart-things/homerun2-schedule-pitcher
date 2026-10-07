@@ -143,7 +143,24 @@ func serve(cfg config.Config, args []string) error {
 		slog.Info("agent mode: reporting check results", "addr", reportAddr(cfg, prof), "source", reporter.Source)
 	} else {
 		fc := prof.Spec.Findings
+		hb := prof.Spec.Heartbeat
+		hbSchedule, err := profile.ParseSchedule(hb.Schedule, prof.Location())
+		if err != nil {
+			return fmt.Errorf("spec.heartbeat.schedule: %w", err)
+		}
+		hbSources := map[string]time.Duration{}
+		for src, d := range hb.Sources {
+			hbSources[src] = d.D()
+		}
 		fsvc = findings.NewService(fst, st, pt, findings.Config{
+			Heartbeat: findings.HeartbeatConfig{
+				Enabled:    hb.On(),
+				Schedule:   hbSchedule,
+				StaleAfter: hb.StaleAfter.D(),
+				Sources:    hbSources,
+				Name:       prof.Metadata.Name,
+				Status:     heartbeatStatus(sched),
+			},
 			Hours:     findings.OfficeHours{Start: *fc.OfficeHours.Start, End: *fc.OfficeHours.End, Loc: prof.Location()},
 			AckExpiry: fc.AckExpiry.D(),
 			Retention: fc.Retention.D(),
@@ -380,6 +397,29 @@ func buildStore(ctx context.Context, cfg config.Config, prof *profile.SchedulePi
 		slog.Info("state store: redis", "addr", addr, "port", port, "prefix", st.Prefix())
 	}
 	return st, findings.NewRedis(client, st.Prefix()), nil
+}
+
+// heartbeatStatus summarises the checks of this instance for the heartbeat.
+func heartbeatStatus(sched *scheduler.Scheduler) func(context.Context) []string {
+	return func(ctx context.Context) []string {
+		sts, err := sched.Statuses(ctx)
+		if err != nil {
+			return []string{"Checks: unknown (" + err.Error() + ")"}
+		}
+		bad, failing := 0, 0
+		for _, cs := range sts {
+			if cs.State.Failing {
+				failing++
+			} else if cs.State.Band > 0 {
+				bad++
+			}
+		}
+		line := fmt.Sprintf("Checks: %d, not ok: %d", len(sts), bad)
+		if failing > 0 {
+			line += fmt.Sprintf(", could not check: %d", failing)
+		}
+		return []string{"Version " + version, line}
+	}
 }
 
 // buildDiscoverer returns nil when discovery is off.
