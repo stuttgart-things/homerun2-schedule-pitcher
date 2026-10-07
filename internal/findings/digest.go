@@ -21,11 +21,13 @@ func (o OfficeHours) Inside(t time.Time) bool {
 }
 
 // Immediate reports whether an event is pitched on its own right away:
-// critical always, error only inside office hours. Resolutions wait for the
-// next update.
+// critical always, error only inside office hours. A resolution is
+// immediate when the finding itself was pitched on its own in this open
+// period, at any time, so an alarm in the channel gets its resolution;
+// other resolutions wait for the next update.
 func Immediate(e Event, now time.Time, o OfficeHours) bool {
 	if e.Change == ChangeResolved {
-		return false
+		return e.Finding.NotifiedThisPeriod()
 	}
 	switch e.Finding.Severity {
 	case SeverityCritical:
@@ -83,8 +85,10 @@ func Build(kind DigestKind, all []Finding, since, now time.Time) Digest {
 	}
 	for _, f := range all {
 		if !f.IsOpen() {
-			// Came and went within the window: nothing to report.
-			if after(f.ResolvedAt) && !after(f.OpenSince()) {
+			// Came and went within the window: nothing to report. A
+			// resolution already pitched on its own is not repeated in updates.
+			resolvedNotified := kind == KindUpdate && !f.ResolvedNotifiedAt.IsZero() && !f.ResolvedNotifiedAt.Before(f.ResolvedAt)
+			if after(f.ResolvedAt) && !after(f.OpenSince()) && !resolvedNotified {
 				d.Resolved = append(d.Resolved, f)
 			}
 			continue

@@ -144,6 +144,8 @@ type Finding struct {
 	// NotifiedAt is when the finding was last pitched on its own (immediate
 	// delivery), so the hourly update does not repeat that change.
 	NotifiedAt time.Time `json:"notifiedAt,omitzero"`
+	// ResolvedNotifiedAt is when its resolution was pitched on its own.
+	ResolvedNotifiedAt time.Time `json:"resolvedNotifiedAt,omitzero"`
 
 	History []Observation `json:"history,omitempty"`
 }
@@ -153,6 +155,12 @@ func (f Finding) ID() string { return f.Source + "/" + f.Key }
 
 // IsOpen reports whether the finding is open or acknowledged.
 func (f Finding) IsOpen() bool { return f.Status != StatusResolved }
+
+// NotifiedThisPeriod reports whether the finding was pitched on its own
+// during its current (or last) open period.
+func (f Finding) NotifiedThisPeriod() bool {
+	return !f.NotifiedAt.IsZero() && !f.NotifiedAt.Before(f.OpenSince())
+}
 
 // OpenSince is when the current open period began.
 func (f Finding) OpenSince() time.Time {
