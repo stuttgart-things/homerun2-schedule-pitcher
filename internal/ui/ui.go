@@ -223,10 +223,10 @@ type dashboard struct {
 	// first, at most recentMax; ResolvedCount counts all of them.
 	Resolved      []findings.Finding
 	ResolvedCount int
-	Counts             map[string]int
-	Checks             []scheduler.CheckStatus
-	ChecksBad          int
-	FindingsErr        string
+	Counts        map[string]int
+	Checks        []scheduler.CheckStatus
+	ChecksBad     int
+	FindingsErr   string
 }
 
 func (u *UI) dashboard(w http.ResponseWriter, r *http.Request) {
