@@ -4,7 +4,7 @@
 #   dagger call -m github.com/stuttgart-things/dagger/kcl@v0.134.0 run --source kcl --parameters-file tests/kcl-agent-sthings-infra.yaml
 config.mode: agent
 config.name: homerun2-schedule-pitcher-agent
-config.image: ghcr.io/stuttgart-things/homerun2-schedule-pitcher:v1.1.0
+config.image: ghcr.io/stuttgart-things/homerun2-schedule-pitcher:v1.2.0
 config.namespace: homerun2-agent
 config.agentKind: cronjob
 config.agentSchedule: "7 */6 * * *"

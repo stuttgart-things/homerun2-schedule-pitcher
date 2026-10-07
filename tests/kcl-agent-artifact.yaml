@@ -1,0 +1,29 @@
+---
+# Agent kustomize artifact (homerun2-schedule-pitcher-agent-kustomize), released
+# with every version. Consumers (flux, argocd) set the namespace, replace the
+# placeholder profile ConfigMap and report Secret, and add the Roles for the
+# Secrets the agent reads; those depend on the cluster.
+#
+# Fixed names to patch:
+#   CronJob/ServiceAccount  homerun2-schedule-pitcher-agent
+#   ConfigMap               homerun2-schedule-pitcher-agent-profile  (key profile.yaml)
+#   Secret                  homerun2-schedule-pitcher-agent-report   (key token)
+#   trust bundle            ConfigMap cluster-trust-bundle (optional)
+config.mode: agent
+config.name: homerun2-schedule-pitcher-agent
+config.namespace: homerun2-agent
+config.image: ghcr.io/stuttgart-things/homerun2-schedule-pitcher:main
+config.agentKind: cronjob
+config.agentSchedule: "0 */6 * * *"
+config.reportToken: changeme
+config.trustBundleConfigMap: cluster-trust-bundle
+config.profileYaml: |
+  # Placeholder: replace with the cluster's profile (spec.report.addr,
+  # checks, discovery). Without checks the agent reports an empty set.
+  apiVersion: homerun2.sthings.io/v1alpha1
+  kind: SchedulePitcherProfile
+  metadata:
+    name: placeholder
+  spec:
+    report:
+      addr: https://schedule-pitcher.example.com/findings

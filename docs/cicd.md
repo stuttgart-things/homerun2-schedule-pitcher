@@ -7,7 +7,7 @@
 | `build-test` | Push/PR | Dagger lint, unit tests, integration test against Redis (serve, findings ingest, check finding, ack, `run --dry-run`) |
 | `build-scan-image` | Push/PR | ko image to ghcr.io (`pr-<n>` tags on PRs), Trivy scan |
 | `lint-repo` | Push/PR | Repository linting (YAML, Markdown, secrets) |
-| `release` | After the image build on main | semantic-release, GitHub release, kustomize OCI push of the central KCL profile |
+| `release` | After the image build on main | semantic-release, GitHub release, kustomize OCI artifacts of the central instance and of the agent, image pinned to the release |
 | `pages` | After a release | TechDocs/MkDocs pages |
 | `cleanup-pr-artifacts` | PR closed | Deletes the PR image tags |
 
