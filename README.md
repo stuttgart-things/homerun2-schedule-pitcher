@@ -341,6 +341,10 @@ for the central instance and the agents come from the KCL module in
 [`kcl/`](kcl/README.md); see [docs/deployment.md](docs/deployment.md) and
 [docs/cicd.md](docs/cicd.md).
 
+Each release also publishes the kustomize artifacts
+`homerun2-schedule-pitcher-kustomize` (central) and
+`homerun2-schedule-pitcher-agent-kustomize` (agent, without Roles).
+
 ```bash
 task render-central   # KCL -> /tmp/schedule-pitcher-central.yaml
 task render-agent     # KCL -> /tmp/schedule-pitcher-agent.yaml

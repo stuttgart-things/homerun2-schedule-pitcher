@@ -20,4 +20,51 @@ jobs:
       kcl-source-dir: kcl
       kcl-profile-file: tests/kcl-deploy-profile.yaml
       kustomize-oci-repo: ghcr.io/stuttgart-things/homerun2-schedule-pitcher-kustomize
+      # Pins the released image in the kustomize base instead of :main.
+      kustomize-image-key: config.image
+    secrets: inherit # pragma: allowlist secret
+
+  # The release template pushes one kustomize base (the central instance).
+  # The agent base is pushed here, with the same version, when the run above
+  # tagged a release on the commit it built.
+  agent-version:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      sha: ${{ steps.tag.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+      - name: Release tag on this commit
+        id: tag
+        run: |
+          git fetch --tags --force
+          TAG=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "release tag on $(git rev-parse --short HEAD): ${TAG:-none}"
+
+  push-agent-kustomize:
+    needs: agent-version
+    if: needs.agent-version.outputs.tag != ''
+    # Declared here as well: a reusable workflow can narrow the caller's
+    # token but never widen it.
+    permissions:
+      contents: read
+      packages: write
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-push-kustomize.yaml@main
+    with:
+      runs-on: ubuntu-latest
+      ref: ${{ needs.agent-version.outputs.sha }}
+      kcl-source-dir: kcl
+      kcl-profile-file: tests/kcl-agent-artifact.yaml
+      kcl-parameters: config.image=ghcr.io/stuttgart-things/homerun2-schedule-pitcher:${{ needs.agent-version.outputs.tag }}
+      kustomize-oci-repo: ghcr.io/stuttgart-things/homerun2-schedule-pitcher-agent-kustomize
+      tag: ${{ needs.agent-version.outputs.tag }}
     secrets: inherit # pragma: allowlist secret

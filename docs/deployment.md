@@ -9,9 +9,17 @@ Dockerfile): `ko build .` or `task build-scan-image-ko`. Releases push
 ## Manifests (KCL)
 
 `kcl/` renders either the central instance or an agent, selected with
-`config.mode`. The release publishes the central variant
-(`tests/kcl-deploy-profile.yaml`) as the kustomize OCI artifact
-`ghcr.io/stuttgart-things/homerun2-schedule-pitcher-kustomize`.
+`config.mode`. Every release publishes both as kustomize OCI artifacts, with
+the image pinned to the release version:
+
+| Artifact | From | Contents |
+|---|---|---|
+| `ghcr.io/stuttgart-things/homerun2-schedule-pitcher-kustomize:<tag>` | `tests/kcl-deploy-profile.yaml` | central instance |
+| `ghcr.io/stuttgart-things/homerun2-schedule-pitcher-agent-kustomize:<tag>` | `tests/kcl-agent-artifact.yaml` | agent: CronJob `homerun2-schedule-pitcher-agent`, ServiceAccount, placeholder profile ConfigMap `homerun2-schedule-pitcher-agent-profile` (key `profile.yaml`) and placeholder Secret `homerun2-schedule-pitcher-agent-report` (key `token`); **no Roles** |
+
+Consumers of the agent artifact replace the placeholders and add one `Role` +
+`RoleBinding` per namespace the agent reads Secrets in (subject: ServiceAccount
+`homerun2-schedule-pitcher-agent`), since those depend on the cluster.
 
 ```bash
 dagger call -m github.com/stuttgart-things/dagger/kcl@v0.134.0 run \

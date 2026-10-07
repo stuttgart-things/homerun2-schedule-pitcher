@@ -11,6 +11,6 @@ jobs:
     uses: stuttgart-things/github-workflow-templates/.github/workflows/call-cleanup-pr-artifacts.yaml@main
     with:
       runs-on: ubuntu-latest
-      packages: homerun2-schedule-pitcher,homerun2-schedule-pitcher-kustomize
+      packages: homerun2-schedule-pitcher,homerun2-schedule-pitcher-kustomize,homerun2-schedule-pitcher-agent-kustomize
       dry-run: false
     secrets: inherit # pragma: allowlist secret
