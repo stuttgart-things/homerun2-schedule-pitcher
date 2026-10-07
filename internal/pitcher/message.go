@@ -117,6 +117,11 @@ func subject(c profile.Check, n state.Notification) string {
 		return "GitHub token " + c.ID
 	case profile.TypeTLSEndpoint:
 		return fmt.Sprintf("TLS certificate of %s", c.Target)
+	case profile.TypeVaultTokenTTL:
+		if n.Subject != "" {
+			return fmt.Sprintf("Vault token %s (%s)", c.ID, n.Subject)
+		}
+		return "Vault token " + c.ID
 	default:
 		return c.ID
 	}
@@ -124,7 +129,7 @@ func subject(c profile.Check, n state.Notification) string {
 
 func noun(checkType string) string {
 	switch checkType {
-	case profile.TypeGitHubTokenExpiry:
+	case profile.TypeGitHubTokenExpiry, profile.TypeVaultTokenTTL:
 		return "token"
 	case profile.TypeTLSEndpoint:
 		return "certificate"

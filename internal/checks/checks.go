@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/httpclient"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/profile"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/status"
 )
@@ -49,6 +50,17 @@ func New(c profile.Check, secrets SecretResolver) (Checker, error) {
 		}, nil
 	case profile.TypeTLSEndpoint:
 		return NewTLSEndpoint(c.Target, c.ServerName, c.CAFile, c.Chain, c.Timeout.D())
+	case profile.TypeVaultTokenTTL:
+		client, err := httpclient.New(c.CAFile, c.Insecure, c.Timeout.D())
+		if err != nil {
+			return nil, err
+		}
+		return &VaultTokenTTL{
+			Addr:      c.Addr,
+			Token:     func(ctx context.Context) (string, error) { return secrets.Resolve(ctx, c.TokenFrom) },
+			Namespace: c.VaultNamespace,
+			Client:    client,
+		}, nil
 	default:
 		return nil, fmt.Errorf("unknown check type %q", c.Type)
 	}

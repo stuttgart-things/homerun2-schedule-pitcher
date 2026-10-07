@@ -1,0 +1,44 @@
+---
+# Agent on sthings-infra (#26): watches the OpenBao transit seal token.
+# Render: task render-agent with this file, or
+#   dagger call -m github.com/stuttgart-things/dagger/kcl@v0.134.0 run --source kcl --parameters-file tests/kcl-agent-sthings-infra.yaml
+config.mode: agent
+config.name: homerun2-schedule-pitcher-agent
+config.image: ghcr.io/stuttgart-things/homerun2-schedule-pitcher:v1.1.0
+config.namespace: homerun2-agent
+config.agentKind: cronjob
+config.agentSchedule: "7 */6 * * *"
+config.trustBundleConfigMap: cluster-trust-bundle
+config.secretAccess:
+  - namespace: openbao
+    secretNames: [openbao-transit-seal]
+config.profileYaml: |
+  # Agent on sthings-infra: watches the OpenBao transit seal token (#26,
+  # stuttgart-things/stuttgart-things#3502) next to the Secret and reports to
+  # the central instance on platform. The token never leaves the cluster.
+  #
+  # The token's policy needs read on auth/token/lookup-self; the agent's Role
+  # needs get on openbao/openbao-transit-seal (KCL: config.secretAccess).
+  apiVersion: homerun2.sthings.io/v1alpha1
+  kind: SchedulePitcherProfile
+  metadata:
+    name: sthings-infra
+  spec:
+    report:
+      addr: https://homerun2-schedule-pitcher.platform.sthings-vsphere.labul.sva.de/findings
+      caFile: /etc/ssl/custom/trust-bundle.pem
+      auth:
+        tokenFrom:
+          env: REPORT_TOKEN
+    defaults:
+      schedule: "0 */6 * * *"
+    checks:
+      - id: openbao-transit-seal
+        type: vault-token-ttl
+        description: Transit seal token of OpenBao on sthings-infra (vault-vsphere); OpenBao cannot unseal without it
+        addr: https://vault-vsphere.tiab.labda.sva.de:8200
+        caFile: /etc/ssl/custom/trust-bundle.pem
+        tokenFrom:
+          secretKeyRef: { name: openbao-transit-seal, namespace: openbao, key: token }
+        url: https://github.com/stuttgart-things/stuttgart-things/issues/3502
+        tags: [vault, seal]
