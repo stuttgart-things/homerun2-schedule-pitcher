@@ -27,12 +27,23 @@ const (
 	AnnotationTags        = AnnotationPrefix + "tags"
 	AnnotationAssignee    = AnnotationPrefix + "assignee"
 	AnnotationAPIURL      = AnnotationPrefix + "api-url"
+	// vault-token-ttl
+	AnnotationVaultAddr      = AnnotationPrefix + "vault-addr"
+	AnnotationVaultNamespace = AnnotationPrefix + "vault-namespace"
+	AnnotationCAFile         = AnnotationPrefix + "ca-file"
+
+	// LabelWatch selects Secrets; its value names the token kind:
+	// true or github-token (GitHub), vault-token (Vault/OpenBao).
+	LabelWatch = AnnotationPrefix + "watch-expiry"
 )
 
 // TokenKeys are tried in this order when a Secret has several keys and no
 // token-key annotation: Tekton/Backstage use GITHUB_TOKEN, Flux git-token-auth
 // and Argo CD repository secrets use password.
 var TokenKeys = []string{"token", "GITHUB_TOKEN", "github_token", "password"}
+
+// VaultTokenKeys are tried for Vault tokens.
+var VaultTokenKeys = []string{"token", "VAULT_TOKEN", "vault-token", "vault_token"}
 
 // Discoverer lists labelled Secrets.
 type Discoverer struct {
@@ -67,7 +78,7 @@ func (d *Discoverer) Discover(ctx context.Context) (checks []profile.Check, comp
 			for k := range s.Data {
 				keys = append(keys, k)
 			}
-			c, err := checkFor(s.Namespace, s.Name, s.Annotations, keys)
+			c, err := checkFor(s.Namespace, s.Name, s.Labels, s.Annotations, keys)
 			if err == nil {
 				c, err = d.Profile.CompleteCheck(c)
 			}
@@ -151,16 +162,29 @@ func nsName(ns string) string {
 	return ns
 }
 
-// checkFor builds the check of one Secret from its annotations and keys.
-func checkFor(namespace, name string, ann map[string]string, keys []string) (profile.Check, error) {
+// checkFor builds the check of one Secret from its label, annotations and keys.
+func checkFor(namespace, name string, lbl, ann map[string]string, keys []string) (profile.Check, error) {
 	typ := ann[AnnotationCheckType]
 	if typ == "" {
-		typ = profile.TypeGitHubTokenExpiry
+		switch lbl[LabelWatch] {
+		case "vault-token":
+			typ = profile.TypeVaultTokenTTL
+		default:
+			typ = profile.TypeGitHubTokenExpiry
+		}
 	}
-	if typ != profile.TypeGitHubTokenExpiry {
-		return profile.Check{}, fmt.Errorf("check type %q cannot be discovered (only %s)", typ, profile.TypeGitHubTokenExpiry)
+	candidates := TokenKeys
+	switch typ {
+	case profile.TypeGitHubTokenExpiry:
+	case profile.TypeVaultTokenTTL:
+		candidates = VaultTokenKeys
+		if ann[AnnotationVaultAddr] == "" {
+			return profile.Check{}, fmt.Errorf("vault token needs the annotation %s", AnnotationVaultAddr)
+		}
+	default:
+		return profile.Check{}, fmt.Errorf("check type %q cannot be discovered (only %s, %s)", typ, profile.TypeGitHubTokenExpiry, profile.TypeVaultTokenTTL)
 	}
-	key, err := tokenKey(ann[AnnotationTokenKey], keys)
+	key, err := tokenKey(ann[AnnotationTokenKey], keys, candidates)
 	if err != nil {
 		return profile.Check{}, err
 	}
@@ -175,11 +199,14 @@ func checkFor(namespace, name string, ann map[string]string, keys []string) (pro
 		URL:         ann[AnnotationURL],
 		Assignee:    ann[AnnotationAssignee],
 		APIURL:      ann[AnnotationAPIURL],
+		Addr:        ann[AnnotationVaultAddr],
+		CAFile:      ann[AnnotationCAFile],
 		Origin:      profile.OriginDiscovered,
 		TokenFrom: &profile.ValueFrom{SecretKeyRef: &profile.SecretKeyRef{
 			Namespace: namespace, Name: name, Key: key,
 		}},
 	}
+	c.VaultNamespace = ann[AnnotationVaultNamespace]
 	if c.Description == "" {
 		c.Description = fmt.Sprintf("Discovered: Secret %s/%s, key %s", namespace, name, key)
 	}
@@ -191,7 +218,7 @@ func checkFor(namespace, name string, ann map[string]string, keys []string) (pro
 	return c, nil
 }
 
-func tokenKey(annotated string, keys []string) (string, error) {
+func tokenKey(annotated string, keys, candidates []string) (string, error) {
 	if annotated != "" {
 		if !slices.Contains(keys, annotated) {
 			return "", fmt.Errorf("annotated token key %q not found (keys: %s)", annotated, strings.Join(sorted(keys), ", "))
@@ -201,7 +228,7 @@ func tokenKey(annotated string, keys []string) (string, error) {
 	if len(keys) == 1 {
 		return keys[0], nil
 	}
-	for _, k := range TokenKeys {
+	for _, k := range candidates {
 		if slices.Contains(keys, k) {
 			return k, nil
 		}

@@ -154,6 +154,8 @@ func TestParseErrors(t *testing.T) {
 		{"bad cron", head + "spec:\n  checks:\n    - {id: a, type: tls-endpoint, target: 'a:1', schedule: 'every day'}\n", "schedule"},
 		{"threshold order", head + "spec:\n  checks:\n    - {id: a, type: tls-endpoint, target: 'a:1', thresholds: {warning: 1d, error: 7d}}\n", "warning >= error >= critical"},
 		{"bad duration", head + "spec:\n  checks:\n    - {id: a, type: tls-endpoint, target: 'a:1', thresholds: {warning: soon}}\n", "invalid duration"},
+		{"vault without addr", head + "spec:\n  checks:\n    - {id: a, type: vault-token-ttl, tokenFrom: {env: X}}\n", "addr is required"},
+		{"vault without token", head + "spec:\n  checks:\n    - {id: a, type: vault-token-ttl, addr: 'https://v:8200'}\n", "tokenFrom is required"},
 		{"bad timezone", head + "spec:\n  defaults: { timezone: Mars/Base }\n", "timezone"},
 		{"office hours", head + "spec:\n  findings: { officeHours: { start: 18, end: 8 } }\n", "officeHours"},
 	}

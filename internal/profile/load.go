@@ -32,7 +32,7 @@ const (
 	DefaultAckExpiry   = 3 * 24 * time.Hour
 	DefaultRetention   = 7 * 24 * time.Hour
 
-	DefaultDiscoverySelector = "homerun2.sthings.io/watch-expiry=true"
+	DefaultDiscoverySelector = "homerun2.sthings.io/watch-expiry in (true,github-token,vault-token)"
 	DefaultDiscoveryInterval = time.Hour
 )
 
@@ -325,6 +325,15 @@ func validateCheck(c Check) []error {
 
 	switch c.Type {
 	case TypeGitHubTokenExpiry:
+		if c.TokenFrom == nil {
+			add("tokenFrom is required for %s", c.Type)
+		} else if err := validateValueFrom(c.TokenFrom); err != nil {
+			add("tokenFrom: %v", err)
+		}
+	case TypeVaultTokenTTL:
+		if c.Addr == "" {
+			add("addr is required for %s", c.Type)
+		}
 		if c.TokenFrom == nil {
 			add("tokenFrom is required for %s", c.Type)
 		} else if err := validateValueFrom(c.TokenFrom); err != nil {

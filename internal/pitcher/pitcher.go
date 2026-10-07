@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -18,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/httpclient"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/profile"
 )
 
@@ -52,24 +51,7 @@ func NewHTTP(addr, format, token, caFile string, insecure bool) (*HTTP, error) {
 // NewHTTPClient returns a client with a request timeout that trusts the
 // system roots plus caFile.
 func NewHTTPClient(caFile string, insecure bool) (*http.Client, error) {
-	tlsCfg := &tls.Config{InsecureSkipVerify: insecure} //nolint:gosec // opt-in via profile
-	if caFile != "" {
-		roots, err := x509.SystemCertPool()
-		if err != nil || roots == nil {
-			roots = x509.NewCertPool()
-		}
-		pem, err := os.ReadFile(caFile)
-		if err != nil {
-			return nil, fmt.Errorf("reading CA file: %w", err)
-		}
-		if !roots.AppendCertsFromPEM(pem) {
-			return nil, fmt.Errorf("no certificates found in %s", caFile)
-		}
-		tlsCfg.RootCAs = roots
-	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = tlsCfg
-	return &http.Client{Timeout: requestTimeout, Transport: transport}, nil
+	return httpclient.New(caFile, insecure, requestTimeout)
 }
 
 func (h *HTTP) Pitch(ctx context.Context, m Message) error {

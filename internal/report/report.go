@@ -14,6 +14,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -74,9 +75,14 @@ func FromStatuses(source string, statuses []scheduler.CheckStatus, now time.Time
 }
 
 func hostOf(c profile.Check) string {
-	if c.Type == profile.TypeTLSEndpoint {
+	switch c.Type {
+	case profile.TypeTLSEndpoint:
 		if h, _, err := net.SplitHostPort(c.Target); err == nil {
 			return h
+		}
+	case profile.TypeVaultTokenTTL:
+		if u, err := url.Parse(c.Addr); err == nil {
+			return u.Hostname()
 		}
 	}
 	return ""

@@ -14,7 +14,8 @@ history and locks (#10); findings ingest with office-hours delivery and
 acknowledge (#14); check results as findings and agent mode (#16): agents on
 the clusters run checks and send results to the central `POST /findings`.
 Label-based discovery of token Secrets (#18); CI workflows, Dagger
-integration test and KCL module for central + agent (#20); web UI (#22).
+integration test and KCL module for central + agent (#20); web UI (#22);
+check type `vault-token-ttl` (#26).
 Next (MVP 2 in #1): reminders, deployment on platform. The
 instance runs on platform and uses the homerun2 `redis-stack`. The Dagger module in
 `dagger/` runs unit tests and an integration test against Redis

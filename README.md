@@ -63,6 +63,7 @@ the host name is error.
 | Type | What it does |
 |---|---|
 | `github-token-expiry` | `GET /rate_limit` with the token and reads the `github-authentication-token-expiration` header. `401` means expired or revoked. `GET /user` adds the token owner (`owner: false` turns that off). The token is read again on every run, so a rotated Secret is picked up. |
+| `vault-token-ttl` | `GET /v1/auth/token/lookup-self` with the token itself against `addr` (Vault or OpenBao; `caFile`, `insecure`, `vaultNamespace`). Days left = `ttl`. A **periodic, renewable token with less than half of its period left is not being renewed** and is at least `warning` (the failure of stuttgart-things/stuttgart-things#3502, about two weeks early). `403` / bad token is `critical` (expired, revoked, or the policy lacks read on `auth/token/lookup-self`). `ttl: 0` (root, non-expiring) is `info` once. The check never renews the token. |
 | `tls-endpoint` | TLS dial to `target` (`host[:port]`, port defaults to 443) with SNI, reads the leaf `NotAfter`, or the earliest `NotAfter` of the presented chain with `chain: true`. Trust and host name are verified against the system roots plus `caFile`. An expired certificate is still read and reported. |
 
 ### Profile
@@ -134,8 +135,10 @@ server-rendered and need no JavaScript. Cross-site form posts are rejected.
 ## Discovery
 
 With `spec.discovery.enabled` an instance (usually an agent) turns every
-Secret with the label `homerun2.sthings.io/watch-expiry=true` into a
-`github-token-expiry` check, and rescans every `interval` (default 1h). New
+Secret with the label `homerun2.sthings.io/watch-expiry` into a check: `true`
+or `github-token` gives `github-token-expiry`, `vault-token` gives
+`vault-token-ttl` (which also needs the annotation
+`homerun2.sthings.io/vault-addr`), and rescans every `interval` (default 1h). New
 Secrets are checked right away; removed ones drop out of the next report, so
 their findings resolve. A scan that cannot list a namespace only adds checks
 and never removes any.
@@ -145,12 +148,17 @@ spec:
   discovery:
     enabled: true
     namespaces: [flux-system, tekton-ci, argocd]   # empty = all namespaces
-    labelSelector: homerun2.sthings.io/watch-expiry=true
+    labelSelector: homerun2.sthings.io/watch-expiry in (true,github-token,vault-token)
     interval: 1h
 ```
 
 ```bash
 kubectl -n flux-system label secret git-token-auth homerun2.sthings.io/watch-expiry=true
+
+kubectl -n openbao label secret openbao-transit-seal homerun2.sthings.io/watch-expiry=vault-token
+kubectl -n openbao annotate secret openbao-transit-seal \
+  homerun2.sthings.io/vault-addr=https://vault-vsphere.tiab.labda.sva.de:8200 \
+  homerun2.sthings.io/ca-file=/etc/ssl/custom/trust-bundle.pem
 ```
 
 The key that holds the token is found without annotation when the Secret has
@@ -158,7 +166,9 @@ one key, or one of `token`, `GITHUB_TOKEN`, `github_token`, `password` (in
 this order), which covers Flux `git-token-auth`, Argo CD repository secrets,
 Tekton and Backstage. Optional annotations (prefix `homerun2.sthings.io/`):
 `token-key`, `check-id` (default `<namespace>.<name>`), `description`, `url`,
-`tags` (comma-separated), `assignee`, `api-url` (GitHub Enterprise).
+`tags` (comma-separated), `assignee`, `api-url` (GitHub Enterprise), and for
+Vault tokens `vault-addr`, `vault-namespace`, `ca-file` (keys tried: `token`,
+`VAULT_TOKEN`, `vault-token`, `vault_token`).
 Checks in `spec.checks` win over discovered ones with the same id.
 
 > **RBAC:** discovery needs `list` on Secrets, and Kubernetes returns the

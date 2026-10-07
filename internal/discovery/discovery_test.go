@@ -28,6 +28,12 @@ func secret(ns, name string, labelled bool, ann map[string]string, keys ...strin
 	return s
 }
 
+func vaultSecret(ns, name string, ann map[string]string, keys ...string) *corev1.Secret {
+	s := secret(ns, name, true, ann, keys...)
+	s.Labels[watch] = "vault-token"
+	return s
+}
+
 func testProfile(t *testing.T) *profile.SchedulePitcherProfile {
 	t.Helper()
 	p, err := profile.Parse([]byte(`
@@ -56,6 +62,10 @@ func TestDiscover(t *testing.T) {
 		secret("backstage", "unlabelled", false, nil, "GITHUB_TOKEN"),
 		secret("dapr", "ambiguous", true, nil, "a", "b"),
 		secret("kargo", "tls", true, map[string]string{AnnotationCheckType: "tls-endpoint"}, "tls.crt"),
+		vaultSecret("openbao", "openbao-transit-seal", map[string]string{
+			AnnotationVaultAddr: "https://vault-vsphere.example:8200", AnnotationCAFile: "/etc/ssl/custom/trust-bundle.pem",
+		}, "token", "addr"),
+		vaultSecret("cert-manager", "no-addr", nil, "token"),
 	)
 	p := testProfile(t)
 	d := &Discoverer{Client: client, Config: p.Spec.Discovery, Profile: p}
@@ -70,8 +80,16 @@ func TestDiscover(t *testing.T) {
 	for _, c := range found {
 		ids[c.ID] = c
 	}
-	if len(ids) != 3 {
+	if len(ids) != 4 {
 		t.Fatalf("found = %v", ids)
+	}
+	seal := ids["openbao.openbao-transit-seal"]
+	if seal.Type != profile.TypeVaultTokenTTL || seal.Addr != "https://vault-vsphere.example:8200" ||
+		seal.TokenFrom.SecretKeyRef.Key != "token" || seal.CAFile == "" || seal.Thresholds.Error.D().Hours() != 7*24 {
+		t.Errorf("seal = %+v", seal)
+	}
+	if !strings.Contains(err.Error(), "cert-manager/no-addr") || !strings.Contains(err.Error(), AnnotationVaultAddr) {
+		t.Errorf("missing vault-addr not reported: %v", err)
 	}
 	flux := ids["flux-system.git-token-auth"]
 	if ref := flux.TokenFrom.SecretKeyRef; ref.Key != "password" || ref.Namespace != "flux-system" {

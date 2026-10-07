@@ -139,6 +139,7 @@ const (
 const (
 	TypeGitHubTokenExpiry = "github-token-expiry"
 	TypeTLSEndpoint       = "tls-endpoint"
+	TypeVaultTokenTTL     = "vault-token-ttl"
 )
 
 // Check is one scheduled check. Empty fields fall back to spec.defaults.
@@ -165,6 +166,13 @@ type Check struct {
 	Owner *bool `yaml:"owner"`
 	// Reminder keeps a reminder in sync with the learned expiry (not implemented yet).
 	Reminder bool `yaml:"reminder"`
+
+	// vault-token-ttl (tokenFrom, caFile and insecure as well)
+	// Addr is the Vault/OpenBao address, e.g. https://vault.example:8200.
+	Addr string `yaml:"addr"`
+	// VaultNamespace is sent as X-Vault-Namespace.
+	VaultNamespace string `yaml:"vaultNamespace"`
+	Insecure       bool   `yaml:"insecure"`
 
 	// tls-endpoint
 	Target     string   `yaml:"target"`
