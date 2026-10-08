@@ -220,6 +220,7 @@ func (s *Service) Start(ctx context.Context) {
 		}
 	})
 	if hb := s.cfg.Heartbeat; hb.Enabled && hb.Schedule != nil {
+		s.heartbeatBaseline(ctx)
 		c.Schedule(hb.Schedule, cron.FuncJob(func() {
 			if err := s.Heartbeat(ctx); err != nil && !errors.Is(err, ErrBusy) {
 				slog.Error("heartbeat failed", "error", err)
@@ -362,6 +363,17 @@ func (s *Service) watchdog(ctx context.Context, now time.Time) error {
 	}
 	_, err = s.Ingest(ctx, r)
 	return err
+}
+
+// heartbeatBaseline starts the heartbeat metric at the last heartbeat in
+// the store, or at the start time if there was none yet, so an alert on its
+// age does not fire after a restart or before the first heartbeat.
+func (s *Service) heartbeatBaseline(ctx context.Context) {
+	at := s.now()
+	if d, err := s.store.GetDelivery(ctx); err == nil && !d.LastHeartbeat.IsZero() {
+		at = d.LastHeartbeat
+	}
+	metrics.Heartbeat(at)
 }
 
 // Heartbeat sends the daily alive message: checks, open findings and when

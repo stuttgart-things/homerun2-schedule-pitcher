@@ -145,7 +145,7 @@ server-rendered and need no JavaScript. Cross-site form posts are rejected.
 
 Who watches the watcher (central instance, on by default):
 
-- **Heartbeat:** a daily `info` message "schedule-pitcher alive" (default 08:00) with version, checks (total / not ok), open findings by severity and when each source last reported. Metric `schedule_pitcher_heartbeat_timestamp_seconds`: alert elsewhere (Grafana, scout) when it stops moving, e.g. `time() - schedule_pitcher_heartbeat_timestamp_seconds > 26*3600`.
+- **Heartbeat:** a daily `info` message "schedule-pitcher alive" (default 08:00) with version, checks (total / not ok), open findings by severity and when each source last reported. Metric `schedule_pitcher_heartbeat_timestamp_seconds`: alert elsewhere (Grafana, scout) when it stops moving, e.g. `time() - schedule_pitcher_heartbeat_timestamp_seconds > 26*3600`. At startup it is set to the last heartbeat in the store, or to the start time before the first heartbeat, so the rule fires neither after a restart nor right after the first deploy.
 - **Watchdog:** the central instance records every source's last report (`schedule_pitcher_source_last_report_timestamp_seconds{source}`). An agent source (`checks-*`) silent for longer than `staleAfter` becomes a `warning` finding "No report from checks-sthings-infra for 14 hours" (source `schedule-pitcher-watchdog`). It resolves by itself once the agent reports again. Other sources, e.g. daily cron jobs, are watched only when listed.
 
 ```yaml

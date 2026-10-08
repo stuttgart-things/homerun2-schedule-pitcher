@@ -10,6 +10,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/metrics"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/pitcher"
 	"github.com/stuttgart-things/homerun2-schedule-pitcher/internal/store"
 )
@@ -564,5 +565,31 @@ func TestHeartbeat(t *testing.T) {
 	*now = at(7, 8, 0)
 	if err := s.Heartbeat(ctx); err == nil {
 		t.Fatal("expected an error")
+	}
+}
+
+func TestHeartbeatBaseline(t *testing.T) {
+	ctx := context.Background()
+	s, _, now := newHeartbeatService(t)
+	read := func() float64 {
+		mfs, _ := metrics.Registry.Gather()
+		for _, mf := range mfs {
+			if mf.GetName() == "schedule_pitcher_heartbeat_timestamp_seconds" {
+				return mf.GetMetric()[0].GetGauge().GetValue()
+			}
+		}
+		return -1
+	}
+	// No heartbeat yet: the start time.
+	s.heartbeatBaseline(ctx)
+	if got := read(); got != float64(now.Unix()) {
+		t.Fatalf("baseline without heartbeat = %v, want %v", got, now.Unix())
+	}
+	// After a heartbeat and a restart: the stored heartbeat, not the restart.
+	_ = s.store.PutDelivery(ctx, Delivery{LastHeartbeat: at(4, 8, 0)})
+	*now = at(5, 12, 0)
+	s.heartbeatBaseline(ctx)
+	if got := read(); got != float64(at(4, 8, 0).Unix()) {
+		t.Fatalf("baseline after restart = %v, want the stored heartbeat", got)
 	}
 }
