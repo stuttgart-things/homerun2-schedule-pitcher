@@ -140,6 +140,9 @@ func serve(cfg config.Config, args []string) error {
 	var fsvc *findings.Service
 	if agent != nil {
 		reporter.Sender = agent
+		if len(prof.Spec.Reminders) > 0 {
+			slog.Warn("spec.reminders is ignored on an agent")
+		}
 		slog.Info("agent mode: reporting check results", "addr", reportAddr(cfg, prof), "source", reporter.Source)
 	} else {
 		fc := prof.Spec.Findings
@@ -147,6 +150,10 @@ func serve(cfg config.Config, args []string) error {
 		hbSchedule, err := profile.ParseSchedule(hb.Schedule, prof.Location())
 		if err != nil {
 			return fmt.Errorf("spec.heartbeat.schedule: %w", err)
+		}
+		reminders, err := buildReminders(prof)
+		if err != nil {
+			return err
 		}
 		hbSources := map[string]time.Duration{}
 		for src, d := range hb.Sources {
@@ -166,10 +173,13 @@ func serve(cfg config.Config, args []string) error {
 			Retention: fc.Retention.D(),
 			System:    prof.Spec.Defaults.System,
 			Assignee:  prof.Spec.Defaults.Assignee,
+			Reminders: reminders,
 		})
 		mux.HandleFunc("POST /findings", auth(handlers.NewIngestHandler(fsvc)))
 		mux.HandleFunc("GET /api/findings", auth(handlers.NewFindingsHandler(fsvc)))
 		mux.HandleFunc("POST /api/findings/ack", auth(handlers.NewAckHandler(fsvc)))
+		mux.HandleFunc("GET /api/reminders", auth(handlers.NewRemindersHandler(fsvc)))
+		mux.HandleFunc("POST /api/reminders/{id}/done", auth(handlers.NewReminderDoneHandler(fsvc)))
 		reporter.Sender = report.Local{Service: fsvc}
 	}
 	sched.DeliverAsFindings(reporter.AfterRun)
@@ -360,6 +370,29 @@ func printStatuses(statuses []scheduler.CheckStatus) {
 
 // buildStore returns the Redis store when an address is configured (profile
 // or REDIS_ADDR), otherwise the in-memory store.
+// buildReminders turns spec.reminders into reminders of the findings
+// service; the profile is validated already.
+func buildReminders(prof *profile.SchedulePitcherProfile) ([]findings.Reminder, error) {
+	var out []findings.Reminder
+	for _, r := range prof.Spec.Reminders {
+		fr := findings.Reminder{ID: r.ID, Title: r.Title, Message: r.Message, URL: r.URL, Tags: r.Tags, Recurrence: r.Recurrence}
+		for _, l := range r.LeadTimes {
+			fr.Lead = max(fr.Lead, l.D())
+		}
+		var err error
+		if r.Recurrence != "" {
+			fr.Schedule, err = profile.ParseSchedule(r.Recurrence, prof.Location())
+		} else {
+			fr.Due, err = profile.ParseDue(r.Due, prof.Location())
+		}
+		if err != nil {
+			return nil, fmt.Errorf("spec.reminders %s: %w", r.ID, err)
+		}
+		out = append(out, fr)
+	}
+	return out, nil
+}
+
 func buildStore(ctx context.Context, cfg config.Config, prof *profile.SchedulePitcherProfile, resolver *secrets.Resolver) (store.Store, findings.Store, error) {
 	rc := prof.Spec.Redis
 	addr, port, password := rc.Addr, rc.Port, rc.Password

@@ -161,6 +161,12 @@ func TestParseErrors(t *testing.T) {
 		{"vault without token", head + "spec:\n  checks:\n    - {id: a, type: vault-token-ttl, addr: 'https://v:8200'}\n", "tokenFrom is required"},
 		{"bad timezone", head + "spec:\n  defaults: { timezone: Mars/Base }\n", "timezone"},
 		{"heartbeat schedule", head + "spec:\n  heartbeat: { schedule: 'daily' }\n", "spec.heartbeat.schedule"},
+		{"reminder without due", head + "spec:\n  reminders:\n    - {id: r, title: t}\n", "exactly one of due or recurrence"},
+		{"reminder with both", head + "spec:\n  reminders:\n    - {id: r, title: t, due: '2027-01-01', recurrence: '0 9 * * 1'}\n", "exactly one of due or recurrence"},
+		{"reminder bad due", head + "spec:\n  reminders:\n    - {id: r, title: t, due: 'next week'}\n", "neither a date"},
+		{"reminder bad cron", head + "spec:\n  reminders:\n    - {id: r, title: t, recurrence: 'weekly'}\n", "recurrence"},
+		{"reminder no title", head + "spec:\n  reminders:\n    - {id: r, due: '2027-01-01'}\n", "title is required"},
+		{"reminder duplicate", head + "spec:\n  reminders:\n    - {id: r, title: t, due: '2027-01-01'}\n    - {id: r, title: t, due: '2027-01-02'}\n", "duplicate id"},
 		{"office hours", head + "spec:\n  findings: { officeHours: { start: 18, end: 8 } }\n", "officeHours"},
 	}
 	for _, tt := range tests {
@@ -170,6 +176,31 @@ func TestParseErrors(t *testing.T) {
 				t.Fatalf("err = %v, want it to contain %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestReminders(t *testing.T) {
+	p, err := Parse([]byte(`
+apiVersion: homerun2.sthings.io/v1alpha1
+kind: SchedulePitcherProfile
+spec:
+  defaults: { timezone: Europe/Berlin }
+  reminders:
+    - { id: renew-cert, title: Renew the cert, due: "2027-03-28" }
+    - { id: review, title: Weekly review, recurrence: "0 9 * * 1", leadTimes: [1d] }
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Spec.Reminders[0].LeadTimes; len(got) != 3 || got[0].D() != DefaultReminderLead {
+		t.Errorf("default lead times = %v", got)
+	}
+	due, _ := ParseDue(p.Spec.Reminders[0].Due, p.Location())
+	if want := time.Date(2027, 3, 28, 0, 0, 0, 0, p.Location()); !due.Equal(want) {
+		t.Errorf("due = %s, want %s", due, want)
+	}
+	if t2, err := ParseDue("2027-03-28T10:00:00Z", p.Location()); err != nil || t2.Hour() != 10 {
+		t.Errorf("RFC3339 due = %s, %v", t2, err)
 	}
 }
 

@@ -24,6 +24,14 @@ curl -s -X POST https://schedule-pitcher.example/api/findings/ack -H "Authorizat
   -d '{"source":"disk-dev4","key":"dev4-vm/disk:/var","by":"patrick.hermann","note":"cleanup running"}'
 ```
 
+## Reminders
+
+```bash
+curl -s https://schedule-pitcher.example/api/reminders -H "Authorization: Bearer $TOKEN"
+curl -s -X POST https://schedule-pitcher.example/api/reminders/wildcard-cert/done -H "Authorization: Bearer $TOKEN" \
+  -d '{"by":"patrick.hermann"}'
+```
+
 ## Checks
 
 ```bash

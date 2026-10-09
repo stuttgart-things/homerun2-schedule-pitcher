@@ -31,6 +31,7 @@ type Config struct {
 	System    string
 	Assignee  string
 	Heartbeat HeartbeatConfig
+	Reminders []Reminder
 }
 
 // HeartbeatConfig: daily alive message and the watchdog for silent sources.
@@ -228,6 +229,13 @@ func (s *Service) Start(ctx context.Context) {
 		}))
 	}
 	c.Start()
+	if s.inHours(s.now()) {
+		go func() {
+			if err := s.evaluateReminders(ctx); err != nil && !errors.Is(err, ErrBusy) {
+				slog.Error("evaluating reminders failed", "error", err)
+			}
+		}()
+	}
 	go func() {
 		<-ctx.Done()
 		<-c.Stop().Done()
@@ -246,6 +254,13 @@ func (s *Service) Tick(ctx context.Context) error {
 		// Before the digest, so an update already carries a silent source.
 		if err := s.watchdog(ctx, now); err != nil {
 			slog.Error("watchdog failed", "error", err)
+		}
+		// Only in office hours, so a reminder turning overdue at midnight
+		// does not pitch at night.
+		if s.inHours(now) {
+			if err := s.evaluateReminders(ctx); err != nil {
+				slog.Error("evaluating reminders failed", "error", err)
+			}
 		}
 		d, err := s.store.GetDelivery(ctx)
 		if err != nil {
@@ -309,6 +324,12 @@ func (s *Service) due(d Delivery, now time.Time) (DigestKind, time.Time) {
 		return KindUpdate, since
 	}
 	return "", time.Time{}
+}
+
+// inHours reports whether t falls into the office hours.
+func (s *Service) inHours(t time.Time) bool {
+	h := t.In(s.cfg.Hours.Loc).Hour()
+	return h >= s.cfg.Hours.Start && h < s.cfg.Hours.End
 }
 
 // staleLimit returns how long a source may stay silent, and whether it is

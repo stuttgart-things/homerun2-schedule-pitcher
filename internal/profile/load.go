@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -35,6 +36,7 @@ const (
 	DefaultDiscoverySelector = "homerun2.sthings.io/watch-expiry in (true,github-token,vault-token)"
 
 	DefaultHeartbeatSchedule = "0 8 * * *"
+	DefaultReminderLead      = 30 * 24 * time.Hour
 	DefaultStaleAfter        = 13 * time.Hour
 	DefaultDiscoveryInterval = time.Hour
 )
@@ -157,6 +159,13 @@ func applyDefaults(p *SchedulePitcherProfile) {
 	// Precedence per field: check, spec.defaults, type default, DefaultThresholds.
 	p.userThresholds = d.Thresholds
 	d.Thresholds = mergeThresholds(d.Thresholds, DefaultThresholds)
+
+	for i := range s.Reminders {
+		r := &s.Reminders[i]
+		if len(r.LeadTimes) == 0 {
+			r.LeadTimes = []Duration{Duration(DefaultReminderLead), Duration(7 * 24 * time.Hour), Duration(24 * time.Hour)}
+		}
+	}
 
 	hb := &s.Heartbeat
 	if hb.Schedule == "" {
@@ -285,6 +294,42 @@ func validate(p *SchedulePitcherProfile) error {
 			add("spec.heartbeat.sources.%s must be positive", src)
 		}
 	}
+	seenReminder := map[string]bool{}
+	for i, r := range s.Reminders {
+		where := fmt.Sprintf("spec.reminders[%d]", i)
+		if r.ID != "" {
+			where = fmt.Sprintf("spec.reminders[%d] (%s)", i, r.ID)
+		}
+		switch {
+		case r.ID == "":
+			add("%s: id is required", where)
+		case !checkIDPattern.MatchString(r.ID):
+			add("%s: id must match %s", where, checkIDPattern)
+		case seenReminder[r.ID]:
+			add("%s: duplicate id", where)
+		}
+		seenReminder[r.ID] = true
+		if strings.TrimSpace(r.Title) == "" {
+			add("%s: title is required", where)
+		}
+		switch {
+		case (r.Due == "") == (r.Recurrence == ""):
+			add("%s: exactly one of due or recurrence is required", where)
+		case r.Due != "":
+			if _, err := ParseDue(r.Due, time.UTC); err != nil {
+				add("%s: due: %v", where, err)
+			}
+		default:
+			if _, err := CronParser.Parse(r.Recurrence); err != nil {
+				add("%s: recurrence %q: %v", where, r.Recurrence, err)
+			}
+		}
+		for _, l := range r.LeadTimes {
+			if l <= 0 {
+				add("%s: leadTimes must be positive", where)
+			}
+		}
+	}
 	if s.Discovery.Enabled {
 		if _, err := labels.Parse(s.Discovery.LabelSelector); err != nil {
 			add("spec.discovery.labelSelector: %v", err)
@@ -391,6 +436,19 @@ func validateValueFrom(v *ValueFrom) error {
 		return errors.New("exactly one of secretKeyRef, env or file must be set")
 	}
 	return nil
+}
+
+// ParseDue parses a reminder due date: "2027-03-28" (start of that day in
+// loc) or an RFC3339 time.
+func ParseDue(s string, loc *time.Location) (time.Time, error) {
+	if t, err := time.ParseInLocation("2006-01-02", s, loc); err == nil {
+		return t, nil
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%q is neither a date (2006-01-02) nor RFC3339", s)
+	}
+	return t, nil
 }
 
 // ParseSchedule parses a cron expression in the given timezone. A CRON_TZ=

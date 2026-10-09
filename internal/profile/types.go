@@ -32,6 +32,25 @@ type Spec struct {
 	// Heartbeat: daily alive message and the watchdog for silent agents
 	// (central instance only).
 	Heartbeat Heartbeat `yaml:"heartbeat"`
+	// Reminders for things no check can see (central instance only).
+	Reminders []Reminder `yaml:"reminders"`
+}
+
+// Reminder is due once (Due) or repeatedly (Recurrence).
+type Reminder struct {
+	ID      string   `yaml:"id"`
+	Title   string   `yaml:"title"`
+	Message string   `yaml:"message"`
+	URL     string   `yaml:"url"`
+	Tags    []string `yaml:"tags"`
+	// Due is a date (2027-03-28, start of day in the profile timezone) or
+	// an RFC3339 time.
+	Due string `yaml:"due"`
+	// Recurrence is a cron expression in the profile timezone.
+	Recurrence string `yaml:"recurrence"`
+	// LeadTimes before the due date from which the reminder is open
+	// (default 30d, 7d, 1d; the longest counts).
+	LeadTimes []Duration `yaml:"leadTimes"`
 }
 
 // Heartbeat configures who watches the watcher.

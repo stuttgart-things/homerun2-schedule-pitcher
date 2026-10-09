@@ -43,7 +43,7 @@ func (f *fakeChecks) History(context.Context, string, int) ([]store.HistoryEntry
 	return []store.HistoryEntry{{At: now, Band: status.Warning, Summary: "token expires", Pitched: []string{"firing"}}}, nil
 }
 
-type fakeFindings struct{ acked string }
+type fakeFindings struct{ acked, done string }
 
 func (f *fakeFindings) List(_ context.Context, st, _ string) ([]findings.Finding, error) {
 	if st == findings.StatusResolved {
@@ -62,6 +62,21 @@ func (f *fakeFindings) Acknowledge(_ context.Context, source, key, by, note stri
 		return findings.Finding{}, findings.ErrNotFound
 	}
 	return findings.Finding{}, nil
+}
+
+func (f *fakeFindings) Reminders(context.Context) ([]findings.ReminderStatus, error) {
+	return []findings.ReminderStatus{{
+		Reminder: findings.Reminder{ID: "cert-renewal", Title: "Renew the wildcard cert", Recurrence: "0 9 1 3 *"},
+		Next:     time.Now().Add(72 * time.Hour), Status: findings.ReminderOpen, Days: 3,
+	}}, nil
+}
+
+func (f *fakeFindings) ReminderDone(_ context.Context, id, by string) (findings.ReminderStatus, error) {
+	if id != "cert-renewal" {
+		return findings.ReminderStatus{}, findings.ErrUnknownReminder
+	}
+	f.done = id + " by " + by
+	return findings.ReminderStatus{Reminder: findings.Reminder{ID: id, Title: "Renew the wildcard cert"}, Next: time.Now().AddDate(1, 0, 0)}, nil
 }
 
 func setup(t *testing.T, withFindings bool) (*http.ServeMux, *fakeChecks, *fakeFindings) {
@@ -206,6 +221,19 @@ func TestPages(t *testing.T) {
 	rr = do(mux, http.MethodPost, "/ui/findings/ack", url.Values{"source": {"disk"}, "key": {"vm/disk:/var"}, "note": {"cleanup"}}, c, "")
 	if ff.acked != "disk|vm/disk:/var|patrick.hermann|cleanup" || !strings.Contains(rr.Header().Get("Location"), "flash=") {
 		t.Errorf("ack: %q %s", ff.acked, rr.Header().Get("Location"))
+	}
+	if !strings.Contains(body, "Renew the wildcard cert") || !strings.Contains(body, "/ui/reminders/cert-renewal/done") {
+		t.Error("dashboard misses the reminder")
+	}
+	rr = do(mux, http.MethodPost, "/ui/reminders/cert-renewal/done", url.Values{}, c, "")
+	if ff.done != "cert-renewal by patrick.hermann" || !strings.Contains(rr.Header().Get("Location"), "next+due") {
+		t.Errorf("reminder done: %q %s", ff.done, rr.Header().Get("Location"))
+	}
+	if rr := do(mux, http.MethodPost, "/ui/reminders/nope/done", url.Values{}, c, ""); rr.Code != http.StatusNotFound {
+		t.Errorf("unknown reminder: %d", rr.Code)
+	}
+	if rr := do(mux, http.MethodPost, "/ui/reminders/cert-renewal/done", url.Values{}, c, "https://evil.example"); rr.Code != http.StatusForbidden {
+		t.Errorf("cross-site done: %d", rr.Code)
 	}
 	if rr := do(mux, http.MethodPost, "/ui/findings/ack", url.Values{"source": {"disk"}, "key": {"nope"}}, c, ""); !strings.Contains(rr.Header().Get("Location"), "error=") {
 		t.Errorf("ack unknown: %s", rr.Header().Get("Location"))
