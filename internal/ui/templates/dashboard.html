@@ -51,24 +51,6 @@
 </table></div>
 {{end}}
 
-{{if $d.Reminders}}
-<h2>Reminders</h2>
-<div class="overflow-auto"><table>
-<tr><th>Status</th><th>Reminder</th><th>Due</th><th>Repeats</th><th>Last done</th><th></th></tr>
-{{range $d.Reminders}}
-<tr>
-  <td><span class="{{reminderClass .Status}}">{{.Status}}</span></td>
-  <td>{{if .URL}}<a href="{{.URL}}" target="_blank" rel="noopener">{{.Title}}</a>{{else}}{{.Title}}{{end}}
-    {{if .Message}}<div class="muted small"><pre>{{.Message}}</pre></div>{{end}}</td>
-  <td class="small nowrap">{{if isZero .Next}}–{{else}}{{day .Next}}<div class="muted">{{until .Next}}</div>{{end}}</td>
-  <td class="small"><code>{{if .Recurrence}}{{.Recurrence}}{{else}}once{{end}}</code></td>
-  <td class="small nowrap">{{if isZero .State.DoneAt}}–{{else}}{{when .State.DoneAt}}<div class="muted">{{.State.DoneBy}}</div>{{end}}</td>
-  <td>{{if not (isZero .Next)}}<form method="post" action="/ui/reminders/{{pathEscape .ID}}/done" class="inline"><button>Done</button></form>{{end}}</td>
-</tr>
-{{end}}
-</table></div>
-{{end}}
-
 <h2>Recently resolved <span class="muted small">(last 24 h{{if gt $d.ResolvedCount (len $d.Resolved)}}, newest {{len $d.Resolved}} of {{$d.ResolvedCount}}{{end}} · <a href="/ui/resolved">all</a>)</span></h2>
 <div class="overflow-auto">
 {{if $d.Resolved}}
@@ -89,7 +71,7 @@
 </div>
 {{end}}
 
-<h2>Checks</h2>
+<h2>Checks <span class="muted small">(run by this instance{{if .Title}}, {{.Title}}{{end}}{{if .HasFindings}}; checks of agents arrive as findings with source checks-&lt;cluster&gt;{{end}})</span></h2>
 <div class="overflow-auto">
 {{if $d.Checks}}
 <table>
@@ -102,10 +84,31 @@
   <td class="small">{{if .State.Failing}}{{.State.LastError}}{{else}}{{if .State.Problem}}{{.State.Problem}}<br>{{end}}{{.State.Summary}}{{end}}</td>
   <td class="small nowrap">{{when .State.LastRun}}</td>
   <td class="small nowrap">{{if .NextRun}}{{when .NextRun}}{{else}}–{{end}}</td>
-  <td>{{if not .Check.Paused}}<form method="post" action="/ui/checks/{{pathEscape .Check.ID}}/run" class="inline"><input type="hidden" name="back" value="dashboard"><button>Run now</button></form>{{end}}</td>
+  <td>{{if not .Check.Paused}}<form method="post" action="/ui/checks/{{pathEscape .Check.ID}}/run" class="inline"><input type="hidden" name="back" value="dashboard"><button title="Run {{.Check.ID}} now in this instance ({{.Check.Type}}): updates its state and history{{if $.HasFindings}} and the findings{{end}}; it pitches like a scheduled run">Run now</button></form>{{end}}</td>
 </tr>
 {{end}}
 </table>
 {{else}}<p class="muted">No checks configured.</p>{{end}}
 </div>
+
+{{if .HasFindings}}{{if $d.Reminders}}
+<h2>Reminders</h2>
+<div class="overflow-auto"><table>
+<tr><th>Status</th><th>Reminder</th><th>Due</th><th>Repeats</th><th>Last done</th><th></th></tr>
+{{range $d.Reminders}}
+<tr>
+  <td><span class="{{reminderClass .Status}}">{{.Status}}</span></td>
+  <td>{{if .URL}}<a href="{{.URL}}" target="_blank" rel="noopener">{{.Title}}</a>{{else}}{{.Title}}{{end}}
+    {{if .Message}}<div class="muted small"><pre>{{.Message}}</pre></div>{{end}}</td>
+  <td class="small nowrap">{{if isZero .Next}}–{{else}}{{day .Next}}<div class="muted">{{until .Next}}</div>{{end}}</td>
+  <td class="small"><code>{{if .Recurrence}}{{.Recurrence}}{{else}}once{{end}}</code></td>
+  <td class="small nowrap">{{if isZero .State.DoneAt}}–{{else}}{{when .State.DoneAt}}<div class="muted">{{.State.DoneBy}}</div>{{end}}</td>
+  <td>{{if not (isZero .Next)}}<form method="post" action="/ui/reminders/{{pathEscape .ID}}/done" class="inline"><button>Done</button></form>{{end}}</td>
+</tr>
+{{end}}
+</table></div>
+{{end}}
+
+{{end}}
+
 {{template "foot" .}}{{end}}

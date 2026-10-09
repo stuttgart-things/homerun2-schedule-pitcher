@@ -197,6 +197,12 @@ func TestPages(t *testing.T) {
 	if strings.Contains(body, "<script>") {
 		t.Error("title not escaped")
 	}
+	order := []string{"<h2>Open findings", "<h2>Acknowledged", "<h2>Recently resolved", "<h2>Checks", "<h2>Reminders"}
+	for i := 1; i < len(order); i++ {
+		if a, b := strings.Index(body, order[i-1]), strings.Index(body, order[i]); a < 0 || b < 0 || a > b {
+			t.Errorf("%q must come before %q (%d, %d)", order[i-1], order[i], a, b)
+		}
+	}
 
 	detail := do(mux, http.MethodGet, "/ui/checks/pat", nil, c, "").Body.String()
 	for _, want := range []string{"Secret flux-system/git, key password", "discovered Secret", "firing"} {
@@ -252,5 +258,19 @@ func TestAgentHasNoFindings(t *testing.T) {
 	}
 	if rr := do(mux, http.MethodGet, "/ui/resolved", nil, c, ""); rr.Code != http.StatusNotFound {
 		t.Errorf("resolved on agent: %d", rr.Code)
+	}
+}
+
+func TestRunResult(t *testing.T) {
+	ok := state.State{Band: status.OK, Summary: "token expires on 2027-01-01"}
+	if key, msg := runResult("pat", ok); key != "flash" || msg != "pat: ok – token expires on 2027-01-01" {
+		t.Errorf("ok: %s %q", key, msg)
+	}
+	warn := state.State{Band: status.Warning, Problem: "expires in 5 days", Summary: "s"}
+	if key, msg := runResult("pat", warn); key != "error" || !strings.Contains(msg, "warning – expires in 5 days – s") {
+		t.Errorf("warning: %s %q", key, msg)
+	}
+	if key, msg := runResult("pat", state.State{Failing: true, LastError: "401"}); key != "error" || msg != "pat: could not check: 401" {
+		t.Errorf("failing: %s %q", key, msg)
 	}
 }

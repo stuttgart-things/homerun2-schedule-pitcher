@@ -119,11 +119,19 @@ Unknown fields are rejected. See [`profiles/`](profiles/) for examples.
 
 ## Web UI
 
-`/ui/` on every instance (the root `/` redirects there): open and
-acknowledged findings with age, the checks with band, origin (profile or
-discovered, read-only), expiry, last and next run, **run now**, a detail page
-with history, and the resolved findings of the retention window. An agent
-shows its checks only.
+`/ui/` on every instance (the root `/` redirects there), top to bottom: open
+and acknowledged findings with age, the findings resolved in the last 24 hours
+(all of the retention window on `/ui/resolved`), the checks of this instance
+with band, origin (profile or discovered, read-only), expiry, last and next
+run, and the reminders with a **Done** button. An agent shows its checks only;
+on the central instance, the checks of the agents appear as findings
+(source `checks-<cluster>`).
+
+**Run now** runs that check right away in this instance, against the token or
+endpoint it is configured for, exactly like a scheduled run: it updates state
+and history, reports the findings (central) and pitches by the same rules. The
+result (band and summary, or why it could not check) is shown at the top
+afterwards; the detail page (click the check) has the history of the last runs.
 
 ![Overview](docs/images/ui-overview.png)
 

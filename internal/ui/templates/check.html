@@ -22,7 +22,8 @@
   <dt>Last run</dt><dd>{{when $s.LastRun}}{{if not (isZero $s.LastOK)}} <span class="muted small">(last ok run {{when $s.LastOK}})</span>{{end}}</dd>
   <dt>Next run</dt><dd>{{with .Data.Status.NextRun}}{{when .}}{{else}}–{{end}}</dd>
 </dl>
-{{if not $c.Paused}}<p><form method="post" action="/ui/checks/{{pathEscape $c.ID}}/run" class="inline"><button class="primary">Run now</button></form></p>{{end}}
+{{if not $c.Paused}}<p><form method="post" action="/ui/checks/{{pathEscape $c.ID}}/run" class="inline"><button class="primary">Run now</button></form>
+<span class="muted small">Runs this check now in this instance and records the result below, like a scheduled run (pitches included).</span></p>{{end}}
 </div>
 
 <h2>History</h2>

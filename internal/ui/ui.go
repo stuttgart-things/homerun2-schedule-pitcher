@@ -330,18 +330,37 @@ func (u *UI) runCheck(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("back") == "dashboard" {
 		back = "/ui/"
 	}
-	_, err := u.Checks.Run(r.Context(), id)
+	st, err := u.Checks.Run(r.Context(), id)
 	switch {
 	case errors.Is(err, scheduler.ErrUnknownCheck):
 		http.NotFound(w, r)
 	case errors.Is(err, scheduler.ErrBusy):
 		redirect(w, r, back, "error", "The check is already running.")
 	case err != nil:
-		redirect(w, r, back, "error", "Ran, but: "+err.Error())
+		redirect(w, r, back, "error", id+" ran, but: "+err.Error())
 	default:
 		slog.Info("ui run now", "check", id, "user", user(r))
-		redirect(w, r, back, "flash", "Check "+id+" ran.")
+		key, msg := runResult(id, st)
+		redirect(w, r, back, key, msg)
 	}
+}
+
+// runResult turns the state after "Run now" into the flash message.
+func runResult(id string, st state.State) (key, msg string) {
+	if st.Failing {
+		return "error", id + ": could not check: " + st.LastError
+	}
+	msg = id + ": " + st.Band.String()
+	if st.Problem != "" {
+		msg += " – " + st.Problem
+	}
+	if st.Summary != "" {
+		msg += " – " + st.Summary
+	}
+	if st.Band > 0 {
+		return "error", msg
+	}
+	return "flash", msg
 }
 
 func (u *UI) ack(w http.ResponseWriter, r *http.Request) {
