@@ -16,3 +16,11 @@ spec:
       type: tls-endpoint
       target: github.com
       chain: true
+  reminders:
+    - id: rotate-local-token
+      title: Rotate the local GitHub token
+      due: "2026-12-31"
+    - id: weekly-cleanup
+      title: Clean up dev4-vm caches
+      recurrence: "0 9 * * 1"
+      leadTimes: [1d]

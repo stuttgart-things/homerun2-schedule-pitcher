@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 
@@ -15,6 +16,51 @@ type FindingsService interface {
 	Ingest(ctx context.Context, r findings.Report) (findings.IngestResult, error)
 	Acknowledge(ctx context.Context, source, key, by, note string) (findings.Finding, error)
 	List(ctx context.Context, status, source string) ([]findings.Finding, error)
+}
+
+// RemindersService is what the reminder handlers need.
+type RemindersService interface {
+	Reminders(ctx context.Context) ([]findings.ReminderStatus, error)
+	ReminderDone(ctx context.Context, id, by string) (findings.ReminderStatus, error)
+}
+
+// NewRemindersHandler serves GET /api/reminders.
+func NewRemindersHandler(s RemindersService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		list, err := s.Reminders(r.Context())
+		if err != nil {
+			errorJSON(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		respondWithJSON(w, http.StatusOK, list)
+	}
+}
+
+// NewReminderDoneHandler serves POST /api/reminders/{id}/done with an
+// optional body {"by": "..."}.
+func NewReminderDoneHandler(s RemindersService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+		var req struct {
+			By string `json:"by"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			errorJSON(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		if strings.TrimSpace(req.By) == "" {
+			req.By = "api"
+		}
+		st, err := s.ReminderDone(r.Context(), r.PathValue("id"), req.By)
+		switch {
+		case errors.Is(err, findings.ErrUnknownReminder):
+			errorJSON(w, http.StatusNotFound, err.Error())
+		case err != nil:
+			errorJSON(w, http.StatusServiceUnavailable, err.Error())
+		default:
+			respondWithJSON(w, http.StatusOK, st)
+		}
+	}
 }
 
 func errorJSON(w http.ResponseWriter, code int, msg string) {

@@ -9,7 +9,7 @@ homerun2 pitcher that runs scheduled checks (token & certificate expiry, probes)
 > `generic` format), state and history in Redis (or in memory without Redis),
 > `/health`, `/ready`, `/metrics`, a small JSON API, and findings from other jobs
 > with office-hours delivery, agents with discovery, CI workflows and KCL
-> manifests. Still to come (MVP 2 in #1): the web UI and reminders.
+> manifests, the web UI, heartbeat and watchdog, and reminders from the profile.
 
 ## How it works
 
@@ -162,6 +162,43 @@ spec:
 > grafana-format messages to Teams only from `warning` up and `success`, so
 > `info` needs its own output (`system: homerun2-schedule-pitcher`,
 > `severity: info`).
+
+## Reminders
+
+For things no check can see (renew a contract, rotate a token by hand, the
+yearly cert order), the central instance keeps reminders from the profile and
+delivers them as findings of the source `reminders`:
+
+```yaml
+spec:
+  reminders:
+    - id: wildcard-cert
+      title: Order the wildcard certificate
+      message: Order at the CA portal, then update the Vault PKI.
+      url: https://ca.example/orders
+      due: "2027-03-28"          # a date (start of day, profile timezone) or RFC3339
+      # leadTimes: [30d, 7d, 1d] # default; the longest opens the reminder
+    - id: access-review
+      title: Quarterly access review
+      recurrence: "0 9 1 1,4,7,10 *"  # cron in the profile timezone
+      leadTimes: [7d]
+```
+
+| When | Finding |
+| --- | --- |
+| from the longest lead time before the due date | `warning` "Due in 5 days (Wed 2026-10-14)" |
+| on the due day | `error` "Due today", pitched at once |
+| from the next day | `critical` "Overdue by 2 days", pitched at once |
+
+Reminders are evaluated at every hourly tick in office hours (and at startup
+in office hours), so nothing is pitched at night. **Done** (UI button or
+`POST /api/reminders/{id}/done`) resolves the finding: a one-off reminder is
+finished, a recurring one moves on to the occurrence after the one marked
+done, even when done early. A new recurring reminder starts with the next
+occurrence after it was first seen. A reminder removed from the profile
+resolves. `GET /api/reminders` lists all reminders with the next due date and
+status (`upcoming`, `open`, `due today`, `overdue`, `done`). State lives in
+the hash `<prefix>:reminders`.
 
 ## Discovery
 

@@ -453,6 +453,10 @@ func TestStores(t *testing.T) {
 			if src, err := st.Sources(ctx); err != nil || !src["checks-x"].Equal(at(5, 9, 0)) {
 				t.Fatalf("Sources = %v, %v", src, err)
 			}
+			_ = st.PutReminderState(ctx, "r", ReminderState{FirstSeen: at(5, 9, 0), DoneBy: "p"})
+			if rs, err := st.ReminderStates(ctx); err != nil || !rs["r"].FirstSeen.Equal(at(5, 9, 0)) || rs["r"].DoneBy != "p" {
+				t.Fatalf("ReminderStates = %v, %v", rs, err)
+			}
 			d := Delivery{LastUpdate: at(5, 10, 0)}
 			_ = st.PutDelivery(ctx, d)
 			if got, _ := st.GetDelivery(ctx); !got.LastUpdate.Equal(d.LastUpdate) {

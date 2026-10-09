@@ -39,6 +39,8 @@ type Checks interface {
 type Findings interface {
 	List(ctx context.Context, status, source string) ([]findings.Finding, error)
 	Acknowledge(ctx context.Context, source, key, by, note string) (findings.Finding, error)
+	Reminders(ctx context.Context) ([]findings.ReminderStatus, error)
+	ReminderDone(ctx context.Context, id, by string) (findings.ReminderStatus, error)
 }
 
 // UI serves the pages under /ui/.
@@ -74,6 +76,20 @@ func New(checks Checks, f Findings, sessions *Sessions, title, version, mode str
 		"date":      func(t time.Time) string { return t.Format("2006-01-02") },
 		"isZero":    func(t time.Time) bool { return t.IsZero() },
 		"bandClass": func(s string) string { return "severity-" + s },
+		"reminderClass": func(s string) string {
+			switch s {
+			case findings.ReminderOpen:
+				return "severity-warning"
+			case findings.ReminderDueToday:
+				return "severity-error"
+			case findings.ReminderOverdue:
+				return "severity-critical"
+			case findings.ReminderDone:
+				return "severity-success"
+			}
+			return "severity-unknown"
+		},
+		"day": func(t time.Time) string { return t.In(u.Loc).Format("Mon 2006-01-02") },
 		"deref": func(v *float64) string {
 			if v == nil {
 				return ""
@@ -101,6 +117,7 @@ func (u *UI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /ui/checks/{id}/run", u.sameOrigin(u.auth(u.runCheck)))
 	mux.HandleFunc("GET /ui/resolved", u.auth(u.resolvedPage))
 	mux.HandleFunc("POST /ui/findings/ack", u.sameOrigin(u.auth(u.ack)))
+	mux.HandleFunc("POST /ui/reminders/{id}/done", u.sameOrigin(u.auth(u.reminderDone)))
 }
 
 type ctxKey struct{}
@@ -224,6 +241,7 @@ type dashboard struct {
 	Resolved      []findings.Finding
 	ResolvedCount int
 	Counts        map[string]int
+	Reminders     []findings.ReminderStatus
 	Checks        []scheduler.CheckStatus
 	ChecksBad     int
 	FindingsErr   string
@@ -269,6 +287,10 @@ func (u *UI) dashboard(w http.ResponseWriter, r *http.Request) {
 		}
 		slices.SortFunc(d.Resolved, func(a, b findings.Finding) int { return b.ResolvedAt.Compare(a.ResolvedAt) })
 		d.ResolvedCount = len(d.Resolved)
+		d.Reminders, err = u.Findings.Reminders(r.Context())
+		if err != nil && d.FindingsErr == "" {
+			d.FindingsErr = err.Error()
+		}
 		if len(d.Resolved) > recentMax {
 			d.Resolved = d.Resolved[:recentMax]
 		}
@@ -339,6 +361,25 @@ func (u *UI) ack(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("ui acknowledge", "source", source, "key", key, "user", user(r))
 	redirect(w, r, "/ui/", "flash", "Acknowledged: "+key)
+}
+
+func (u *UI) reminderDone(w http.ResponseWriter, r *http.Request) {
+	if u.Findings == nil {
+		http.NotFound(w, r)
+		return
+	}
+	id := r.PathValue("id")
+	st, err := u.Findings.ReminderDone(r.Context(), id, user(r))
+	switch {
+	case errors.Is(err, findings.ErrUnknownReminder):
+		http.NotFound(w, r)
+	case err != nil:
+		redirect(w, r, "/ui/", "error", "Marking done failed: "+err.Error())
+	case st.Next.IsZero():
+		redirect(w, r, "/ui/", "flash", "Done: "+st.Title)
+	default:
+		redirect(w, r, "/ui/", "flash", "Done: "+st.Title+" – next due "+st.Next.In(u.Loc).Format("2006-01-02"))
+	}
 }
 
 func (u *UI) resolvedPage(w http.ResponseWriter, r *http.Request) {

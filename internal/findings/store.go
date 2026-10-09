@@ -33,6 +33,9 @@ type Store interface {
 	TouchSource(ctx context.Context, source string, at time.Time) error
 	// Sources returns when each source last reported.
 	Sources(ctx context.Context) (map[string]time.Time, error)
+	// ReminderStates returns the state of every reminder seen so far.
+	ReminderStates(ctx context.Context) (map[string]ReminderState, error)
+	PutReminderState(ctx context.Context, id string, st ReminderState) error
 }
 
 // Memory keeps findings in the process (no-Redis mode, tests).
@@ -41,10 +44,28 @@ type Memory struct {
 	findings map[string]Finding
 	delivery Delivery
 	sources  map[string]time.Time
+	reminder map[string]ReminderState
 }
 
 func NewMemory() *Memory {
-	return &Memory{findings: map[string]Finding{}, sources: map[string]time.Time{}}
+	return &Memory{findings: map[string]Finding{}, sources: map[string]time.Time{}, reminder: map[string]ReminderState{}}
+}
+
+func (m *Memory) ReminderStates(context.Context) (map[string]ReminderState, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]ReminderState, len(m.reminder))
+	for k, v := range m.reminder {
+		out[k] = v
+	}
+	return out, nil
+}
+
+func (m *Memory) PutReminderState(_ context.Context, id string, st ReminderState) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.reminder[id] = st
+	return nil
 }
 
 func (m *Memory) TouchSource(_ context.Context, source string, at time.Time) error {
@@ -131,9 +152,34 @@ func NewRedis(client redis.UniversalClient, prefix string) *Redis {
 func (r *Redis) key(source, key string) string {
 	return r.prefix + ":finding:" + source + ":" + key
 }
-func (r *Redis) indexKey() string    { return r.prefix + ":findings" }
-func (r *Redis) deliveryKey() string { return r.prefix + ":findings:delivery" }
-func (r *Redis) sourcesKey() string  { return r.prefix + ":findings:sources" }
+func (r *Redis) indexKey() string     { return r.prefix + ":findings" }
+func (r *Redis) deliveryKey() string  { return r.prefix + ":findings:delivery" }
+func (r *Redis) sourcesKey() string   { return r.prefix + ":findings:sources" }
+func (r *Redis) remindersKey() string { return r.prefix + ":reminders" }
+
+func (r *Redis) ReminderStates(ctx context.Context) (map[string]ReminderState, error) {
+	h, err := r.client.HGetAll(ctx, r.remindersKey()).Result()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]ReminderState, len(h))
+	for id, doc := range h {
+		var st ReminderState
+		if err := json.Unmarshal([]byte(doc), &st); err != nil {
+			continue
+		}
+		out[id] = st
+	}
+	return out, nil
+}
+
+func (r *Redis) PutReminderState(ctx context.Context, id string, st ReminderState) error {
+	doc, err := json.Marshal(st)
+	if err != nil {
+		return err
+	}
+	return r.client.HSet(ctx, r.remindersKey(), id, doc).Err()
+}
 
 func (r *Redis) TouchSource(ctx context.Context, source string, at time.Time) error {
 	return r.client.HSet(ctx, r.sourcesKey(), source, at.UTC().Format(time.RFC3339Nano)).Err()
