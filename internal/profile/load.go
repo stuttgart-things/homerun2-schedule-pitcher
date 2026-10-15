@@ -216,6 +216,10 @@ func (p *SchedulePitcherProfile) applyCheckDefaults(c *Check) {
 			t := true
 			c.Owner = &t
 		}
+	case TypeScheduledRun:
+		if c.RunTimeout == 0 {
+			c.RunTimeout = Duration(DefaultRunTimeout)
+		}
 	case TypeTLSEndpoint:
 		if c.Target != "" {
 			if _, _, err := net.SplitHostPort(c.Target); err != nil {
@@ -407,6 +411,8 @@ func validateCheck(c Check) []error {
 		if c.Target == "" {
 			add("target is required for %s", c.Type)
 		}
+	case TypeScheduledRun:
+		// selector, maxAge and runTimeout are optional.
 	case "":
 		add("type is required")
 	default:

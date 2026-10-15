@@ -61,6 +61,8 @@ func New(c profile.Check, secrets SecretResolver) (Checker, error) {
 			Namespace: c.VaultNamespace,
 			Client:    client,
 		}, nil
+	case profile.TypeScheduledRun:
+		return NewScheduledRun(c), nil
 	default:
 		return nil, fmt.Errorf("unknown check type %q", c.Type)
 	}

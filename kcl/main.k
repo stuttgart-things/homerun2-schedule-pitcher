@@ -24,4 +24,4 @@ manifests = [
         service.service
         service.httproute
     ] if m
-] + rbac.roles + rbac.roleBindings
+] + rbac.roles + rbac.roleBindings + rbac.clusterRoles + rbac.clusterRoleBindings
