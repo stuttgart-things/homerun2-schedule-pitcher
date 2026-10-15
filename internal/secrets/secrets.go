@@ -102,8 +102,8 @@ func newKubeGetter() (*kubeGetter, error) {
 	return &kubeGetter{client: client}, nil
 }
 
-// NewKubeClient builds a client from the in-cluster config or KUBECONFIG.
-func NewKubeClient() (kubernetes.Interface, error) {
+// KubeConfig returns the in-cluster config or the one from KUBECONFIG.
+func KubeConfig() (*rest.Config, error) {
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
 		cfg, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
@@ -112,6 +112,15 @@ func NewKubeClient() (kubernetes.Interface, error) {
 		if err != nil {
 			return nil, fmt.Errorf("no kubernetes config (in-cluster or KUBECONFIG): %w", err)
 		}
+	}
+	return cfg, nil
+}
+
+// NewKubeClient builds a client from the in-cluster config or KUBECONFIG.
+func NewKubeClient() (kubernetes.Interface, error) {
+	cfg, err := KubeConfig()
+	if err != nil {
+		return nil, err
 	}
 	client, err := kubernetes.NewForConfig(cfg)
 	if err != nil {

@@ -9,6 +9,11 @@ schema SecretAccess:
     # Names for get; empty with discovery means every Secret in the namespace
     secretNames: [str] = []
 
+schema ScheduledRunTarget:
+    """Kinds that ScheduledRuns create, read by the scheduled-run check"""
+    apiGroup: str
+    resources: [str]
+
 schema SchedulePitcher:
     """Configuration for a homerun2-schedule-pitcher deployment"""
 
@@ -54,6 +59,12 @@ schema SchedulePitcher:
     # additionally allow list (and so reading every Secret there).
     secretAccess: [SecretAccess] = []
     discoveryNamespaces: [str] = []
+
+    # scheduled-run check: a ClusterRole to get/list Crossplane ScheduledRuns
+    # and the instances they create (scheduledRunTargets, e.g. AnsibleRuns or
+    # Jobs). Central and agent.
+    scheduledRunEnabled: bool = False
+    scheduledRunTargets: [ScheduledRunTarget] = []
 
     # central: Service and HTTPRoute (UI, API and the agents' POST /findings)
     servicePort: int = 80

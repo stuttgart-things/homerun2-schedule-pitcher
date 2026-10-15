@@ -241,3 +241,28 @@ func TestParseScheduleTimezone(t *testing.T) {
 		t.Errorf("next = %v, want %v", next, want)
 	}
 }
+
+func TestParseScheduledRun(t *testing.T) {
+	p, err := Parse([]byte(`
+apiVersion: homerun2.sthings.io/v1alpha1
+kind: SchedulePitcherProfile
+spec:
+  checks:
+    - id: nightly-runs
+      type: scheduled-run
+      selector:
+        namespaces: ["*"]
+        labels: { team: infra }
+      maxAge: 26h
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := p.Spec.Checks[0]
+	if c.Selector == nil || c.Selector.Labels["team"] != "infra" || c.Selector.Namespaces[0] != "*" {
+		t.Errorf("selector = %+v", c.Selector)
+	}
+	if c.MaxAge.D() != 26*time.Hour || c.RunTimeout.D() != DefaultRunTimeout {
+		t.Errorf("maxAge/runTimeout = %v/%v", c.MaxAge, c.RunTimeout)
+	}
+}

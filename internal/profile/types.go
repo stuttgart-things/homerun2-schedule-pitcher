@@ -1,5 +1,7 @@
 package profile
 
+import "time"
+
 // SchedulePitcherProfile defines which checks to run, when, and where to pitch
 // the results. It is usually mounted from a ConfigMap.
 type SchedulePitcherProfile struct {
@@ -179,7 +181,12 @@ const (
 	TypeGitHubTokenExpiry = "github-token-expiry"
 	TypeTLSEndpoint       = "tls-endpoint"
 	TypeVaultTokenTTL     = "vault-token-ttl"
+	TypeScheduledRun      = "scheduled-run"
 )
+
+// DefaultRunTimeout is how long a scheduled-run instance may stay unfinished
+// before it counts as failed.
+const DefaultRunTimeout = 6 * time.Hour
 
 // Check is one scheduled check. Empty fields fall back to spec.defaults.
 type Check struct {
@@ -213,10 +220,27 @@ type Check struct {
 	VaultNamespace string `yaml:"vaultNamespace"`
 	Insecure       bool   `yaml:"insecure"`
 
+	// scheduled-run
+	Selector *Selector `yaml:"selector"`
+	// MaxAge: a ScheduledRun whose last tick is older is stale. Default:
+	// one missed tick of its own schedule.
+	MaxAge Duration `yaml:"maxAge"`
+	// RunTimeout: an instance not finished after this long counts as failed
+	// (default 6h).
+	RunTimeout Duration `yaml:"runTimeout"`
+
 	// tls-endpoint
 	Target     string   `yaml:"target"`
 	ServerName string   `yaml:"serverName"`
 	CAFile     string   `yaml:"caFile"`
 	Chain      bool     `yaml:"chain"`
 	Timeout    Duration `yaml:"timeout"`
+}
+
+// Selector picks Kubernetes objects by namespace and labels.
+type Selector struct {
+	// Namespaces to list; empty or "*" means all.
+	Namespaces []string `yaml:"namespaces"`
+	// Labels must all match.
+	Labels map[string]string `yaml:"labels"`
 }

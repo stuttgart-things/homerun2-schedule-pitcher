@@ -65,6 +65,7 @@ the host name is error.
 | `github-token-expiry` | `GET /rate_limit` with the token and reads the `github-authentication-token-expiration` header. `401` means expired or revoked. `GET /user` adds the token owner (`owner: false` turns that off). The token is read again on every run, so a rotated Secret is picked up. |
 | `vault-token-ttl` | `GET /v1/auth/token/lookup-self` with the token itself against `addr` (Vault or OpenBao; `caFile`, `insecure`, `vaultNamespace`). Days left = `ttl`. A **periodic, renewable token with less than half of its period left is not being renewed** and is at least `warning` (the failure of stuttgart-things/stuttgart-things#3502, about two weeks early). `403` / bad token is `critical` (expired, revoked, or the policy lacks read on `auth/token/lookup-self`). `ttl: 0` (root, non-expiring) is `info` once. The check never renews the token. |
 | `tls-endpoint` | TLS dial to `target` (`host[:port]`, port defaults to 443) with SNI, reads the leaf `NotAfter`, or the earliest `NotAfter` of the presented chain with `chain: true`. Trust and host name are verified against the system roots plus `caFile`. An expired certificate is still read and reported. |
+| `scheduled-run` | Lists Crossplane `ScheduledRun`s (stuttgart-things/crossplane-configurations `cicd/scheduled-run`) matching `selector` (`namespaces`, empty or `"*"` = all; `labels`) and reports all of them as one result, e.g. `3 ScheduledRuns: 1 ok, 1 failed, 1 suspended`. Per ScheduledRun: **stale** (`error`) when `status.lastScheduleTime` (or, before the first tick, the creation time) is older than `maxAge`, by default one missed tick of its own `spec.schedule` plus 10 minutes (UTC); **failed** (`error`) when the create job of the last tick did not succeed (`lastScheduleTime` after `lastSuccessfulTime`), or when the newest instance it created (owner label, kind from `spec.manifest`) failed: Job `Failed`, Tekton `Succeeded=False`, a Crossplane XR not `Ready`. An unfinished instance younger than `runTimeout` (default `6h`) is skipped for the one before it; older, it counts as failed. `spec.suspend: true` is listed as suspended and not checked. No ScheduledRun found is `warning`. The finding resolves when all are ok again. Needs `get`/`list` on `scheduledruns` and the target kinds (KCL `config.scheduledRunEnabled`, `config.scheduledRunTargets`). |
 
 ### Profile
 
@@ -105,6 +106,13 @@ spec:
       target: omni.platform.sthings-vsphere.labul.sva.de
       caFile: /etc/ssl/vault-pki-ca/ca.crt
       chain: true
+    - id: nightly-runs
+      type: scheduled-run
+      selector:
+        namespaces: ["*"]      # default: all
+        labels: {}             # optional
+      maxAge: 26h              # optional; default: one missed tick of the schedule
+      runTimeout: 6h
 ```
 
 Secret values (`tokenFrom`, `passwordFrom`) take exactly one of

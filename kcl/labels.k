@@ -21,6 +21,8 @@ _opts = {
     agentSchedule = option("config.agentSchedule")
     secretAccess = option("config.secretAccess")
     discoveryNamespaces = option("config.discoveryNamespaces")
+    scheduledRunEnabled = option("config.scheduledRunEnabled")
+    scheduledRunTargets = option("config.scheduledRunTargets")
     httpRouteEnabled = option("config.httpRouteEnabled")
     httpRouteParentRefName = option("config.httpRouteParentRefName")
     httpRouteParentRefNamespace = option("config.httpRouteParentRefNamespace")
@@ -65,6 +67,13 @@ config: schema.SchedulePitcher = schema.SchedulePitcher {
         } for a in _opts.secretAccess]
     if _opts.discoveryNamespaces:
         discoveryNamespaces = _opts.discoveryNamespaces
+    if _opts.scheduledRunEnabled:
+        scheduledRunEnabled = _opts.scheduledRunEnabled in [True, "True", "true"]
+    if _opts.scheduledRunTargets:
+        scheduledRunTargets = [schema.ScheduledRunTarget {
+            apiGroup = t.apiGroup
+            resources = t.resources
+        } for t in _opts.scheduledRunTargets]
     if _opts.httpRouteEnabled:
         httpRouteEnabled = _opts.httpRouteEnabled in [True, "True", "true"]
     if _opts.httpRouteParentRefName:

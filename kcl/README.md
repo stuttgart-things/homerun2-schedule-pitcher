@@ -29,3 +29,5 @@ kcl run kcl/main.k -D config.mode=agent -D config.reportToken=changeme \
 | `config.agentSchedule` | `0 */6 * * *` | agent |
 | `config.secretAccess` | `[]` (`{namespace, secretNames}`) | agent: Role with `get` |
 | `config.discoveryNamespaces` | `[]` | agent: Role with `get`, `list` |
+| `config.scheduledRunEnabled` | `false` | both: ClusterRole with `get`, `list` on `scheduledruns` for the `scheduled-run` check |
+| `config.scheduledRunTargets` | `[]` (`{apiGroup, resources}`) | both: kinds the ScheduledRuns create, e.g. `{apiGroup: resources.stuttgart-things.com, resources: [ansibleruns]}` |

@@ -142,6 +142,8 @@ func subject(c profile.Check, n state.Notification) string {
 			return fmt.Sprintf("Vault token %s (%s)", c.ID, n.Subject)
 		}
 		return "Vault token " + c.ID
+	case profile.TypeScheduledRun:
+		return "ScheduledRuns " + c.ID
 	default:
 		return c.ID
 	}
@@ -153,6 +155,8 @@ func noun(checkType string) string {
 		return "token"
 	case profile.TypeTLSEndpoint:
 		return "certificate"
+	case profile.TypeScheduledRun:
+		return "runs"
 	default:
 		return "check"
 	}
