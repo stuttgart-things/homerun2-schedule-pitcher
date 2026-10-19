@@ -58,8 +58,11 @@ type UI struct {
 	// the hint on the login page; empty TokenSecret hides the hint.
 	TokenSecret    string
 	TokenNamespace string
-	now            func() time.Time
-	tmpl           *template.Template
+	// basePath prefixes every URL the UI hands out (BASE_PATH, e.g.
+	// "/schedule" behind homerun2-portal); see SetBasePath.
+	basePath string
+	now      func() time.Time
+	tmpl     *template.Template
 }
 
 func New(checks Checks, f Findings, sessions *Sessions, title, version, mode string, loc *time.Location) *UI {
@@ -97,13 +100,28 @@ func New(checks Checks, f Findings, sessions *Sessions, title, version, mode str
 			return fmt.Sprintf("%g", *v)
 		},
 		"pathEscape": url.PathEscape,
+		"base":       func() string { return u.basePath },
 	}).ParseFS(templateFS, "templates/*.html"))
 	return u
 }
 
+// SetBasePath sets the URL prefix the UI is served under, as
+// config.ParseBasePath normalised it ("/schedule", or "" for the root), and
+// scopes the session cookie to it. The routes stay at the root of the mux;
+// handlers.Mount strips the prefix.
+func (u *UI) SetBasePath(basePath string) {
+	u.basePath = basePath
+	if u.Sessions != nil {
+		u.Sessions.Path = basePath + "/"
+	}
+}
+
+// path prefixes a UI path with the base path.
+func (u *UI) path(p string) string { return u.basePath + p }
+
 // Register adds the UI routes.
 func (u *UI) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/ui/", http.StatusFound) })
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, u.path("/ui/"), http.StatusFound) })
 	mux.HandleFunc("GET /ui/static/favicon.png", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		w.Header().Set("Cache-Control", "public, max-age=86400")
@@ -131,7 +149,7 @@ func (u *UI) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		name, ok := u.Sessions.User(r)
 		if !ok {
-			http.Redirect(w, r, "/ui/login?next="+url.QueryEscape(r.URL.Path), http.StatusSeeOther)
+			http.Redirect(w, r, u.path("/ui/login?next=")+url.QueryEscape(u.path(r.URL.Path)), http.StatusSeeOther)
 			return
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, name)))
@@ -140,6 +158,9 @@ func (u *UI) auth(next http.HandlerFunc) http.HandlerFunc {
 
 // sameOrigin rejects cross-site form posts. The SameSite=Strict cookie
 // already keeps the session out of them; this also covers the login form.
+// Behind homerun2-portal the request's Host is the service's, and the host the
+// browser posted to arrives as X-Forwarded-Host. A cross-site form cannot set
+// that header, so accepting it as well keeps the check intact.
 func (u *UI) sameOrigin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
@@ -148,7 +169,7 @@ func (u *UI) sameOrigin(next http.HandlerFunc) http.HandlerFunc {
 		}
 		if origin != "" {
 			o, err := url.Parse(origin)
-			if err != nil || o.Host != r.Host {
+			if err != nil || (o.Host != r.Host && o.Host != r.Header.Get("X-Forwarded-Host")) {
 				http.Error(w, "cross-origin request rejected", http.StatusForbidden)
 				return
 			}
@@ -171,7 +192,10 @@ func (u *UI) render(w http.ResponseWriter, r *http.Request, name string, data an
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Frame-Options", "DENY")
+	// Same origin only: homerun2-portal shows the UI in an iframe on its own
+	// origin, every other site still cannot frame it.
+	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+	w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'")
 	if err := u.tmpl.ExecuteTemplate(w, name, p); err != nil {
 		slog.Error("rendering page failed", "page", name, "error", err)
 	}
@@ -183,7 +207,7 @@ func redirect(w http.ResponseWriter, r *http.Request, path, key, msg string) {
 
 func (u *UI) loginPage(w http.ResponseWriter, r *http.Request) {
 	if _, ok := u.Sessions.User(r); ok {
-		http.Redirect(w, r, "/ui/", http.StatusFound)
+		http.Redirect(w, r, u.path("/ui/"), http.StatusFound)
 		return
 	}
 	hint := ""
@@ -196,18 +220,18 @@ func (u *UI) loginPage(w http.ResponseWriter, r *http.Request) {
 	}
 	u.render(w, r, "login.html", map[string]any{
 		"Enabled": u.Sessions.Enabled(),
-		"Next":    safeNext(r.URL.Query().Get("next")),
+		"Next":    u.safeNext(r.URL.Query().Get("next")),
 		"Secret":  u.TokenSecret,
 		"Hint":    hint,
 	})
 }
 
 func (u *UI) login(w http.ResponseWriter, r *http.Request) {
-	next := safeNext(r.FormValue("next"))
+	next := u.safeNext(r.FormValue("next"))
 	name := strings.TrimSpace(r.FormValue("name"))
 	if !u.Sessions.CheckToken(r.FormValue("token")) || name == "" || len(name) > 64 {
 		time.Sleep(500 * time.Millisecond)
-		redirect(w, r, "/ui/login", "error", "Name and a valid token are required.")
+		redirect(w, r, u.path("/ui/login"), "error", "Name and a valid token are required.")
 		return
 	}
 	u.Sessions.Issue(w, r, name)
@@ -216,16 +240,17 @@ func (u *UI) login(w http.ResponseWriter, r *http.Request) {
 }
 
 // safeNext only allows local UI paths as redirect targets.
-func safeNext(next string) string {
-	if strings.HasPrefix(next, "/ui/") && !strings.HasPrefix(next, "//") && !strings.Contains(next, "\\") {
+func (u *UI) safeNext(next string) string {
+	home := u.path("/ui/")
+	if strings.HasPrefix(next, home) && !strings.HasPrefix(next, "//") && !strings.Contains(next, "\\") {
 		return next
 	}
-	return "/ui/"
+	return home
 }
 
 func (u *UI) logout(w http.ResponseWriter, r *http.Request) {
 	u.Sessions.Clear(w)
-	http.Redirect(w, r, "/ui/login", http.StatusSeeOther)
+	http.Redirect(w, r, u.path("/ui/login"), http.StatusSeeOther)
 }
 
 // recentWindow is how far back the overview lists resolved findings.
@@ -326,9 +351,9 @@ func (u *UI) checkPage(w http.ResponseWriter, r *http.Request) {
 
 func (u *UI) runCheck(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	back := "/ui/checks/" + url.PathEscape(id)
+	back := u.path("/ui/checks/" + url.PathEscape(id))
 	if r.FormValue("back") == "dashboard" {
-		back = "/ui/"
+		back = u.path("/ui/")
 	}
 	st, err := u.Checks.Run(r.Context(), id)
 	switch {
@@ -375,11 +400,11 @@ func (u *UI) ack(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err := u.Findings.Acknowledge(r.Context(), source, key, user(r), note)
 	if err != nil {
-		redirect(w, r, "/ui/", "error", "Acknowledge failed: "+err.Error())
+		redirect(w, r, u.path("/ui/"), "error", "Acknowledge failed: "+err.Error())
 		return
 	}
 	slog.Info("ui acknowledge", "source", source, "key", key, "user", user(r))
-	redirect(w, r, "/ui/", "flash", "Acknowledged: "+key)
+	redirect(w, r, u.path("/ui/"), "flash", "Acknowledged: "+key)
 }
 
 func (u *UI) reminderDone(w http.ResponseWriter, r *http.Request) {
@@ -393,11 +418,11 @@ func (u *UI) reminderDone(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, findings.ErrUnknownReminder):
 		http.NotFound(w, r)
 	case err != nil:
-		redirect(w, r, "/ui/", "error", "Marking done failed: "+err.Error())
+		redirect(w, r, u.path("/ui/"), "error", "Marking done failed: "+err.Error())
 	case st.Next.IsZero():
-		redirect(w, r, "/ui/", "flash", "Done: "+st.Title)
+		redirect(w, r, u.path("/ui/"), "flash", "Done: "+st.Title)
 	default:
-		redirect(w, r, "/ui/", "flash", "Done: "+st.Title+" – next due "+st.Next.In(u.Loc).Format("2006-01-02"))
+		redirect(w, r, u.path("/ui/"), "flash", "Done: "+st.Title+" – next due "+st.Next.In(u.Loc).Format("2006-01-02"))
 	}
 }
 

@@ -17,6 +17,10 @@ const CookieName = "schedule_pitcher_session"
 // Sessions signs login sessions with a key derived from AUTH_TOKEN, so
 // rotating the token logs everyone out and no session store is needed.
 type Sessions struct {
+	// Path scopes the cookie, "/" by default. Under a BASE_PATH it is the
+	// prefix, so behind homerun2-portal the session is not sent to the other
+	// services on the portal's origin.
+	Path  string
 	token string
 	key   []byte
 	TTL   time.Duration
@@ -25,7 +29,7 @@ type Sessions struct {
 
 func NewSessions(token string) *Sessions {
 	sum := sha256.Sum256([]byte("homerun2-schedule-pitcher-ui:" + token))
-	return &Sessions{token: token, key: sum[:], TTL: 12 * time.Hour, now: time.Now}
+	return &Sessions{Path: "/", token: token, key: sum[:], TTL: 12 * time.Hour, now: time.Now}
 }
 
 // Enabled reports whether logins are possible at all.
@@ -47,7 +51,7 @@ func (s *Sessions) Issue(w http.ResponseWriter, r *http.Request, name string) {
 	exp := s.now().Add(s.TTL)
 	payload := base64.RawURLEncoding.EncodeToString([]byte(name)) + "." + strconv.FormatInt(exp.Unix(), 10)
 	http.SetCookie(w, &http.Cookie{
-		Name: CookieName, Value: payload + "." + s.sign(payload), Path: "/",
+		Name: CookieName, Value: payload + "." + s.sign(payload), Path: s.Path,
 		Expires: exp, HttpOnly: true, Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
 		SameSite: http.SameSiteStrictMode,
 	})
@@ -55,7 +59,7 @@ func (s *Sessions) Issue(w http.ResponseWriter, r *http.Request, name string) {
 
 // Clear removes the session cookie.
 func (s *Sessions) Clear(w http.ResponseWriter) {
-	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: "", Path: s.Path, MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 }
 
 // User returns the logged-in name of a request.

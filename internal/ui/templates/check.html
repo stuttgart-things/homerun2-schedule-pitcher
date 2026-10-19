@@ -1,6 +1,6 @@
 {{define "check.html"}}{{template "head" .}}
 {{$c := .Data.Status.Check}}{{$s := .Data.Status.State}}
-<p><a href="/ui/">← Overview</a></p>
+<p><a href="{{base}}/ui/">← Overview</a></p>
 <h1 style="font-size:1.4rem">{{$c.ID}} {{if $s.Failing}}<span class="severity-warning">could not check</span>{{else}}<span class="{{bandClass .Data.Status.Band}}">{{.Data.Status.Band}}</span>{{end}}</h1>
 <div class="detail-panel">
 <dl>
@@ -22,7 +22,7 @@
   <dt>Last run</dt><dd>{{when $s.LastRun}}{{if not (isZero $s.LastOK)}} <span class="muted small">(last ok run {{when $s.LastOK}})</span>{{end}}</dd>
   <dt>Next run</dt><dd>{{with .Data.Status.NextRun}}{{when .}}{{else}}–{{end}}</dd>
 </dl>
-{{if not $c.Paused}}<p><form method="post" action="/ui/checks/{{pathEscape $c.ID}}/run" class="inline"><button class="primary">Run now</button></form>
+{{if not $c.Paused}}<p><form method="post" action="{{base}}/ui/checks/{{pathEscape $c.ID}}/run" class="inline"><button class="primary">Run now</button></form>
 <span class="muted small">Runs this check now in this instance and records the result below, like a scheduled run (pitches included).</span></p>{{end}}
 </div>
 

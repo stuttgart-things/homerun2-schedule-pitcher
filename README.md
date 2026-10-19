@@ -395,6 +395,7 @@ Metrics: `schedule_pitcher_check_last_run_timestamp_seconds{check}`,
 |----------|-------------|---------|
 | `PROFILE_PATH` | Path to the profile (`--profile` overrides) | `/etc/homerun2-schedule-pitcher/profile.yaml` |
 | `PORT` | HTTP server port | `8080` |
+| `BASE_PATH` | URL prefix of the UI, e.g. `/schedule` behind homerun2-portal. The UI answers under `<prefix>/ui/`, its session cookie is scoped to the prefix, and `/` and `/ui/...` redirect there. `/api/*`, `POST /findings`, `/health`, `/ready` and `/metrics` stay at the root (and also answer under the prefix). Plain path segments only; an invalid value fails startup | |
 | `AUTH_TOKEN` | Bearer token for `/api/*` and `POST /findings`, and the UI login | (required) |
 | `PITCH_TARGET` | `http` (omni-pitcher from the profile), `file` or `stdout` | `http` |
 | `PITCH_FILE` | File for `PITCH_TARGET=file` (JSON lines) | `pitched.log` |

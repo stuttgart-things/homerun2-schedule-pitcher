@@ -80,3 +80,7 @@ task build-test-binary
 task lint
 task build-scan-image-ko
 ```
+
+## BASE_PATH (homerun2-portal)
+
+`BASE_PATH` (e.g. `/schedule`) serves the UI under the prefix: homerun2-portal forwards `/schedule/...` unchanged and shows the page in an iframe on its own origin. `handlers.Mount` strips the prefix; the API, `POST /findings` (agents), `/health`, `/ready` and `/metrics` stay at the root, `/` and `/ui/...` redirect under the prefix. Every URL a page hands out goes through `{{base}}` (templates) or `UI.path` (redirects); the session cookie's Path is the prefix. Pages allow framing from the same origin only, and the same-origin check also accepts `X-Forwarded-Host` (set by the portal's proxy).

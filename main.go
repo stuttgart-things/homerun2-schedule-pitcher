@@ -69,6 +69,10 @@ func main() {
 
 	cfg := config.Load()
 	var err error
+	if cfg.BasePath, err = config.LoadBasePath(); err != nil {
+		slog.Error("invalid configuration", "error", err)
+		os.Exit(1)
+	}
 	switch cmd {
 	case "run":
 		err = runOnce(cfg, args)
@@ -191,6 +195,7 @@ func serve(cfg config.Config, args []string) error {
 	}
 	webUI := ui.New(sched, uiFindings, ui.NewSessions(cfg.AuthToken), prof.Metadata.Name, version, mode, prof.Location())
 	webUI.TokenSecret, webUI.TokenNamespace = cfg.AuthTokenSecret, cfg.PodNamespace
+	webUI.SetBasePath(cfg.BasePath)
 	webUI.Register(mux)
 	if cfg.AuthToken == "" {
 		slog.Warn("AUTH_TOKEN is not set: the API rejects every request and the UI login is disabled")
@@ -208,12 +213,12 @@ func serve(cfg config.Config, args []string) error {
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           middleware.RequestLogging(mux),
+		Handler:           middleware.RequestLogging(handlers.Mount(cfg.BasePath, mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	srvErr := make(chan error, 1)
 	go func() {
-		slog.Info("http server listening", "port", cfg.Port)
+		slog.Info("http server listening", "port", cfg.Port, "base_path", cfg.BasePath)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			srvErr <- err
 		}
