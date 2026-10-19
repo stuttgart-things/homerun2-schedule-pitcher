@@ -33,6 +33,8 @@ _env = [
     _secretEnv("AUTH_TOKEN", "token", "auth-token")
     # Named on the login page, where to find the token.
     {name: "AUTH_TOKEN_SECRET", value: "{}-token".format(config.name)}
+    # URL prefix of the UI, e.g. /schedule behind homerun2-portal.
+    {name: "BASE_PATH", value: config.basePath}
 ] + ([
     {name: "REDIS_ADDR", value: config.redisAddr}
     {name: "REDIS_PORT", value: config.redisPort}

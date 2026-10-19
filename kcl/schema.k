@@ -72,6 +72,10 @@ schema SchedulePitcher:
     httpRouteParentRefName: str = ""
     httpRouteParentRefNamespace: str = ""
     httpRouteHostname: str = ""
+    # URL prefix of the UI (BASE_PATH), e.g. "/schedule" behind
+    # homerun2-portal. The HTTPRoute keeps "/": agents POST /findings and the
+    # API stays at the root; / and /ui/... redirect under the prefix.
+    basePath: str = ""
 
     # ConfigMap with trust-bundle.pem (e.g. the vault PKI CA) added to the
     # system roots via SSL_CERT_DIR

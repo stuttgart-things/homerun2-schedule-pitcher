@@ -27,7 +27,7 @@
   <td class="small">{{.Host}}</td>
   <td class="small">{{.Source}}</td>
   <td class="small nowrap">{{age .OpenSince}}</td>
-  <td><form method="post" action="/ui/findings/ack" class="inline">
+  <td><form method="post" action="{{base}}/ui/findings/ack" class="inline">
     <input type="hidden" name="source" value="{{.Source}}"><input type="hidden" name="key" value="{{.Key}}">
     <input type="text" name="note" placeholder="note" maxlength="500" size="12"><button>Acknowledge</button></form></td>
 </tr>
@@ -51,7 +51,7 @@
 </table></div>
 {{end}}
 
-<h2>Recently resolved <span class="muted small">(last 24 h{{if gt $d.ResolvedCount (len $d.Resolved)}}, newest {{len $d.Resolved}} of {{$d.ResolvedCount}}{{end}} · <a href="/ui/resolved">all</a>)</span></h2>
+<h2>Recently resolved <span class="muted small">(last 24 h{{if gt $d.ResolvedCount (len $d.Resolved)}}, newest {{len $d.Resolved}} of {{$d.ResolvedCount}}{{end}} · <a href="{{base}}/ui/resolved">all</a>)</span></h2>
 <div class="overflow-auto">
 {{if $d.Resolved}}
 <table>
@@ -79,12 +79,12 @@
 {{range $d.Checks}}
 <tr>
   <td>{{if .Check.Paused}}<span class="severity-paused">paused</span>{{else if .State.Failing}}<span class="severity-warning">could not check</span>{{else}}<span class="{{bandClass .Band}}">{{.Band}}</span>{{end}}</td>
-  <td><a href="/ui/checks/{{pathEscape .Check.ID}}">{{.Check.ID}}</a><div class="muted small">{{.Check.Type}} · {{.Check.Origin}}</div></td>
+  <td><a href="{{base}}/ui/checks/{{pathEscape .Check.ID}}">{{.Check.ID}}</a><div class="muted small">{{.Check.Type}} · {{.Check.Origin}}</div></td>
   <td class="small nowrap">{{if isZero .State.Expiry}}–{{else}}{{date .State.Expiry}}<div class="muted">{{until .State.Expiry}}</div>{{end}}</td>
   <td class="small">{{if .State.Failing}}{{.State.LastError}}{{else}}{{if .State.Problem}}{{.State.Problem}}<br>{{end}}{{.State.Summary}}{{end}}</td>
   <td class="small nowrap">{{when .State.LastRun}}</td>
   <td class="small nowrap">{{if .NextRun}}{{when .NextRun}}{{else}}–{{end}}</td>
-  <td>{{if not .Check.Paused}}<form method="post" action="/ui/checks/{{pathEscape .Check.ID}}/run" class="inline"><input type="hidden" name="back" value="dashboard"><button title="Run {{.Check.ID}} now in this instance ({{.Check.Type}}): updates its state and history{{if $.HasFindings}} and the findings{{end}}; it pitches like a scheduled run">Run now</button></form>{{end}}</td>
+  <td>{{if not .Check.Paused}}<form method="post" action="{{base}}/ui/checks/{{pathEscape .Check.ID}}/run" class="inline"><input type="hidden" name="back" value="dashboard"><button title="Run {{.Check.ID}} now in this instance ({{.Check.Type}}): updates its state and history{{if $.HasFindings}} and the findings{{end}}; it pitches like a scheduled run">Run now</button></form>{{end}}</td>
 </tr>
 {{end}}
 </table>
@@ -103,7 +103,7 @@
   <td class="small nowrap">{{if isZero .Next}}–{{else}}{{day .Next}}<div class="muted">{{until .Next}}</div>{{end}}</td>
   <td class="small"><code>{{if .Recurrence}}{{.Recurrence}}{{else}}once{{end}}</code></td>
   <td class="small nowrap">{{if isZero .State.DoneAt}}–{{else}}{{when .State.DoneAt}}<div class="muted">{{.State.DoneBy}}</div>{{end}}</td>
-  <td>{{if not (isZero .Next)}}<form method="post" action="/ui/reminders/{{pathEscape .ID}}/done" class="inline"><button>Done</button></form>{{end}}</td>
+  <td>{{if not (isZero .Next)}}<form method="post" action="{{base}}/ui/reminders/{{pathEscape .ID}}/done" class="inline"><button>Done</button></form>{{end}}</td>
 </tr>
 {{end}}
 </table></div>

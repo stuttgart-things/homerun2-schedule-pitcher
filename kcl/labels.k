@@ -27,6 +27,7 @@ _opts = {
     httpRouteParentRefName = option("config.httpRouteParentRefName")
     httpRouteParentRefNamespace = option("config.httpRouteParentRefNamespace")
     httpRouteHostname = option("config.httpRouteHostname")
+    basePath = option("config.basePath")
     trustBundleConfigMap = option("config.trustBundleConfigMap")
     extraEnvVars = option("config.extraEnvVars")
 }
@@ -82,6 +83,8 @@ config: schema.SchedulePitcher = schema.SchedulePitcher {
         httpRouteParentRefNamespace = _opts.httpRouteParentRefNamespace
     if _opts.httpRouteHostname:
         httpRouteHostname = _opts.httpRouteHostname
+    if _opts.basePath:
+        basePath = _opts.basePath
     if _opts.trustBundleConfigMap:
         trustBundleConfigMap = _opts.trustBundleConfigMap
     if _opts.extraEnvVars:

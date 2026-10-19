@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HOMERUN² · schedule pitcher</title>
-    <link rel="icon" type="image/png" href="/ui/static/favicon.png">
+    <link rel="icon" type="image/png" href="{{base}}/ui/static/favicon.png">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <style>
@@ -52,17 +52,17 @@
 <body>
     <div class="header-bar">
         <div>
-            <a href="/ui/" style="text-decoration:none;color:inherit">
+            <a href="{{base}}/ui/" style="text-decoration:none;color:inherit">
                 <h1>HOMERUN²</h1>
                 <div class="subtitle">schedule pitcher{{if .Title}} · {{.Title}}{{end}}</div>
             </a>
         </div>
         {{if .User}}
         <div class="actions">
-            <a href="/ui/">Overview</a>
-            {{if .HasFindings}}<a href="/ui/resolved">Resolved</a>{{end}}
+            <a href="{{base}}/ui/">Overview</a>
+            {{if .HasFindings}}<a href="{{base}}/ui/resolved">Resolved</a>{{end}}
             <span class="who">{{.User}}</span>
-            <form method="post" action="/ui/logout"><button>Log out</button></form>
+            <form method="post" action="{{base}}/ui/logout"><button>Log out</button></form>
         </div>
         {{end}}
     </div>
