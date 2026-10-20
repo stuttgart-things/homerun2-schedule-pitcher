@@ -4,20 +4,45 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HOMERUN² · schedule pitcher</title>
+    <script>
+        // In homerun2-portal's iframe the portal shows the brand and the
+        // service name: hr-embedded switches to the compact header. Set before
+        // the first paint, so the big banner never flashes.
+        if (window.self !== window.top) document.documentElement.classList.add('hr-embedded');
+    </script>
     <link rel="icon" type="image/png" href="{{base}}/ui/static/favicon.png">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <style>
+        /* The homerun2 design tokens: a copy of homerun2-portal's
+           static/homerun2-tokens.css for running without the portal. Behind
+           it the page also links the portal's file (after this block), and
+           its :root wins over this zero-specificity copy. */
+        :where(:root) {
+            --hr-bg: #0b1120;
+            --hr-surface: #111827;
+            --hr-card: #1e293b;
+            --hr-border: #334155;
+            --hr-text: #e2e8f0;
+            --hr-muted: #94a3b8;
+            --hr-accent: #6366f1;
+            --hr-accent-2: #a855f7;
+            --hr-accent-3: #f97316;
+            --hr-ok: #22c55e;
+            --hr-info: #38bdf8;
+            --hr-warning: #eab308;
+            --hr-error: #ef4444;
+        }
         /* Same look as homerun2-core-catcher. */
         :root { --pico-font-size: 14px; }
-        html, body { background: #0f172a; }
+        html, body { background: var(--hr-bg); }
         .severity-critical { color: #f43f5e; font-weight: bold; text-transform: uppercase; }
-        .severity-error { color: #ff4444; font-weight: bold; text-transform: uppercase; }
-        .severity-warning { color: #f97316; font-weight: bold; text-transform: uppercase; }
-        .severity-success, .severity-ok { color: #4ade80; font-weight: bold; text-transform: uppercase; }
-        .severity-info { color: #60a5fa; font-weight: bold; text-transform: uppercase; }
+        .severity-error { color: var(--hr-error); font-weight: bold; text-transform: uppercase; }
+        .severity-warning { color: var(--hr-warning); font-weight: bold; text-transform: uppercase; }
+        .severity-success, .severity-ok { color: var(--hr-ok); font-weight: bold; text-transform: uppercase; }
+        .severity-info { color: var(--hr-info); font-weight: bold; text-transform: uppercase; }
         .severity-unknown, .severity-paused { color: #64748b; font-weight: bold; text-transform: uppercase; }
-        .header-bar { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%); color: #f8fafc; padding: 1.8rem 1.5rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #f97316; flex-wrap: wrap; gap: 1rem; }
+        .header-bar { background: linear-gradient(135deg, var(--hr-accent) 0%, var(--hr-accent-2) 100%); color: #f8fafc; padding: 1.8rem 1.5rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid var(--hr-accent-3); flex-wrap: wrap; gap: 1rem; }
         .header-bar h1 { margin: 0; font-family: 'Press Start 2P', cursive; font-size: 2.2rem; color: #ffffff; letter-spacing: 0.08em; text-shadow: 3px 3px 0px rgba(0,0,0,0.3); }
         .header-bar .subtitle { font-family: 'Press Start 2P', cursive; font-size: 0.7rem; color: #fbbf24; margin-top: 0.5rem; letter-spacing: 0.12em; text-transform: uppercase; }
         .header-bar .actions { display: flex; gap: 1rem; align-items: center; }
@@ -26,35 +51,49 @@
         .header-bar .who { color: #e2e8f0; font-size: 0.85rem; }
         .header-bar form { margin: 0; }
         .header-bar button { padding: 0.15rem 0.6rem; font-size: 0.8rem; margin: 0; background: transparent; border-color: #e2e8f0; color: #e2e8f0; }
+        .header-bar .subtitle .tool { display: none; }
+        /* The compact header inside homerun2-portal (README there, "Embedded
+           header"): one line on the portal's surface, no brand, the subtitle
+           on the left, navigation as links and the user and log out as
+           outlined badges on the right. */
+        .hr-embedded .header-bar { font-family: var(--hr-font, system-ui, sans-serif); background: var(--hr-surface); border-bottom: 1px solid var(--hr-border); min-height: 44px; padding: 6px 16px; align-items: center; }
+        .hr-embedded .header-bar h1 { display: none; }
+        .hr-embedded .header-bar .subtitle { font-family: inherit; font-size: 13px; color: var(--hr-muted); margin: 0; letter-spacing: normal; text-transform: none; }
+        .hr-embedded .header-bar .subtitle .name { display: none; }
+        .hr-embedded .header-bar .subtitle .tool { display: inline; }
+        .hr-embedded .header-bar .actions { gap: 12px; font-size: 12px; }
+        .hr-embedded .header-bar .actions a { font-size: 12px; color: var(--hr-accent); text-decoration: none; }
+        .hr-embedded .header-bar .who, .hr-embedded .header-bar button { font-size: 12px; line-height: 1.4; color: var(--hr-text); border: 1px solid var(--hr-border); border-radius: 999px; padding: 2px 8px; }
         h2 { font-size: 1rem; color: #818cf8; text-transform: uppercase; letter-spacing: 0.05em; margin: 1.5rem 0 0.5rem; }
         table { font-size: 0.85rem; }
-        thead th { background: #1e293b; color: #818cf8; text-transform: uppercase; }
+        thead th { background: var(--hr-card); color: #818cf8; text-transform: uppercase; }
         td form { margin: 0; display: flex; gap: 0.4rem; align-items: center; }
         td input[type=text] { margin: 0; padding: 0.2rem 0.5rem; height: auto; font-size: 0.8rem; max-width: 9rem; }
         td button, .detail-panel button { margin: 0; padding: 0.2rem 0.7rem; font-size: 0.8rem; width: auto; }
-        .detail-panel { background: #1e293b; border: 1px solid #334155; padding: 1.5rem; border-radius: 0.5rem; margin-bottom: 1rem; }
+        .detail-panel { background: var(--hr-card); border: 1px solid var(--hr-border); padding: 1.5rem; border-radius: 0.5rem; margin-bottom: 1rem; }
         .detail-panel dt { color: #818cf8; font-weight: bold; }
-        .detail-panel dd { margin-bottom: 0.5rem; margin-left: 0; color: #e2e8f0; }
+        .detail-panel dd { margin-bottom: 0.5rem; margin-left: 0; color: var(--hr-text); }
         .stats { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
-        .stat { background: #1e293b; border: 1px solid #334155; border-radius: 0.5rem; padding: 0.6rem 1rem; min-width: 8rem; }
+        .stat { background: var(--hr-card); border: 1px solid var(--hr-border); border-radius: 0.5rem; padding: 0.6rem 1rem; min-width: 8rem; }
         .stat .label { font-size: 0.75rem; color: var(--pico-muted-color); text-transform: uppercase; }
-        .stat b { display: block; font-size: 1.4rem; color: #e2e8f0; }
+        .stat b { display: block; font-size: 1.4rem; color: var(--hr-text); }
         .muted { color: var(--pico-muted-color); } .small { font-size: 0.8rem; } .nowrap { white-space: nowrap; }
-        .flash { padding: 0.6rem 1rem; border-radius: 0.5rem; margin-bottom: 1rem; border: 1px solid #4ade80; color: #4ade80; background: #1e293b; }
-        .flash.err { border-color: #ff4444; color: #ff4444; }
+        .flash { padding: 0.6rem 1rem; border-radius: 0.5rem; margin-bottom: 1rem; border: 1px solid var(--hr-ok); color: var(--hr-ok); background: var(--hr-card); }
+        .flash.err { border-color: var(--hr-error); color: var(--hr-error); }
         pre { white-space: pre-wrap; margin: 0; padding: 0; background: none; font: inherit; color: inherit; }
         code { font-size: 0.8rem; }
-        .build-footer { background: #1e293b; color: #475569; padding: 0.6rem 1.5rem; margin-top: 1rem; display: flex; gap: 1.5rem; font-size: 0.75rem; border-top: 1px solid #334155; flex-wrap: wrap; }
+        .build-footer { background: var(--hr-card); color: #475569; padding: 0.6rem 1.5rem; margin-top: 1rem; display: flex; gap: 1.5rem; font-size: 0.75rem; border-top: 1px solid var(--hr-border); flex-wrap: wrap; }
         .build-footer .label { color: #64748b; }
         .build-footer .value { color: #818cf8; }
     </style>
+    {{if .PortalTheme}}<link rel="stylesheet" href="/static/homerun2-tokens.css">{{end}}
 </head>
 <body>
     <div class="header-bar">
         <div>
             <a href="{{base}}/ui/" style="text-decoration:none;color:inherit">
                 <h1>HOMERUN²</h1>
-                <div class="subtitle">schedule pitcher{{if .Title}} · {{.Title}}{{end}}</div>
+                <div class="subtitle"><span class="name">schedule pitcher</span><span class="tool">Checks and reminders</span>{{if .Title}} · {{.Title}}{{end}}</div>
             </a>
         </div>
         {{if .User}}

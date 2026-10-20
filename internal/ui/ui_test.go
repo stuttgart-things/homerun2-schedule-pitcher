@@ -194,7 +194,7 @@ func TestPages(t *testing.T) {
 			t.Errorf("dashboard misses %q", want)
 		}
 	}
-	if strings.Contains(body, "<script>") {
+	if strings.Contains(body, "74% <script>") {
 		t.Error("title not escaped")
 	}
 	order := []string{"<h2>Open findings", "<h2>Acknowledged", "<h2>Recently resolved", "<h2>Checks", "<h2>Reminders"}

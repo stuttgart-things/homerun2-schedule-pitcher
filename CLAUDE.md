@@ -37,7 +37,11 @@ instance runs on platform and uses the homerun2 `redis-stack`. The Dagger module
   the local findings service (central) or a central `/findings` (agent)
 - `kcl/`: manifests, `config.mode: central | agent`; `tests/kcl-*-profile.yaml`
 - `internal/ui`: web UI, `html/template` from `templates/` (embedded),
-  login with `AUTH_TOKEN` and a signed cookie, no JavaScript
+  login with `AUTH_TOKEN` and a signed cookie, no JavaScript beyond the
+  `hr-embedded` line; colours on the homerun2 `--hr-*` tokens (a
+  `:where(:root)` copy in `layout.html`, the portal's
+  `/static/homerun2-tokens.css` linked when `X-Forwarded-Prefix` is set),
+  compact header under `html.hr-embedded` in the portal's iframe
 - `internal/discovery`: labelled Secrets -> checks, `Loop` syncs them into
   the scheduler (`Scheduler.Sync`); tests use the client-go fake clientset
 
