@@ -136,6 +136,10 @@ func (u *UI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ui/resolved", u.auth(u.resolvedPage))
 	mux.HandleFunc("POST /ui/findings/ack", u.sameOrigin(u.auth(u.ack)))
 	mux.HandleFunc("POST /ui/reminders/{id}/done", u.sameOrigin(u.auth(u.reminderDone)))
+	mux.HandleFunc("GET /ui/manifest.json", u.manifest)
+	if u.Findings != nil {
+		mux.HandleFunc("GET /ui/fragment/findings", u.findingsFrag)
+	}
 }
 
 type ctxKey struct{}

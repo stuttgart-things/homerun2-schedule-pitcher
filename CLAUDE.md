@@ -42,6 +42,10 @@ instance runs on platform and uses the homerun2 `redis-stack`. The Dagger module
   `:where(:root)` copy in `layout.html`, the portal's
   `/static/homerun2-tokens.css` linked when `X-Forwarded-Prefix` is set),
   compact header under `html.hr-embedded` in the portal's iframe
+- `internal/ui/fragments.go`: homerun2-portal fragment, public
+  `/ui/manifest.json` and `/ui/fragment/findings` (bare HTML in the portal's
+  `hr-*` classes, URLs under `BASE_PATH`); the fragment needs the session and
+  answers 200 with a login hint without one, never a redirect
 - `internal/discovery`: labelled Secrets -> checks, `Loop` syncs them into
   the scheduler (`Scheduler.Sync`); tests use the client-go fake clientset
 
