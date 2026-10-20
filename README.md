@@ -155,7 +155,18 @@ sops -d clusters/labul/vsphere/platform-sthings/apps/homerun2-schedule-pitcher-s
 ```
  The session is a signed, HttpOnly, SameSite=Strict cookie
 valid for 12 hours; rotating `AUTH_TOKEN` ends all sessions. Pages are
-server-rendered and need no JavaScript. Cross-site form posts are rejected.
+server-rendered and need no JavaScript (one inline line only switches to the
+compact header inside homerun2-portal). Cross-site form posts are rejected.
+
+The colours are built on the homerun2 design tokens (`--hr-*`, homerun2-portal
+README, "Shared theme"): the page keeps a copy of them under `:where(:root)`,
+and when the request came through the portal (`X-Forwarded-Prefix` is set) it
+also links the portal's `/static/homerun2-tokens.css`, the one URL without
+`BASE_PATH`, so a palette change in the portal reaches this UI. Inside the
+portal's frame the banner becomes one compact line: "Checks and reminders"
+and the profile on the left, Overview and Resolved as links and the user and
+Log out as outlined badges on the right. Opened on its own, the UI keeps its
+full header.
 
 ## Heartbeat and watchdog
 

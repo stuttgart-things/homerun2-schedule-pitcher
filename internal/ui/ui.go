@@ -181,7 +181,10 @@ func (u *UI) sameOrigin(next http.HandlerFunc) http.HandlerFunc {
 type page struct {
 	Title, Version, Mode, User, Flash, Error string
 	HasFindings                              bool
-	Data                                     any
+	// PortalTheme links homerun2-portal's design tokens: the request came
+	// through the portal, which sets X-Forwarded-Prefix.
+	PortalTheme bool
+	Data        any
 }
 
 func (u *UI) render(w http.ResponseWriter, r *http.Request, name string, data any) {
@@ -189,6 +192,7 @@ func (u *UI) render(w http.ResponseWriter, r *http.Request, name string, data an
 		Title: u.Title, Version: u.Version, Mode: u.Mode, User: user(r),
 		Flash: r.URL.Query().Get("flash"), Error: r.URL.Query().Get("error"),
 		HasFindings: u.Findings != nil, Data: data,
+		PortalTheme: r.Header.Get("X-Forwarded-Prefix") != "",
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
