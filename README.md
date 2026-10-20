@@ -168,6 +168,23 @@ and the profile on the left, Overview and Resolved as links and the user and
 Log out as outlined badges on the right. Opened on its own, the UI keeps its
 full header.
 
+### homerun2-portal fragment
+
+The central instance offers one fragment for the portal's overview
+(homerun2-portal README, "Fragments"): `<BASE_PATH>/ui/manifest.json` lists
+`findings` ("Open findings", refreshed every 15 s) at
+`<BASE_PATH>/ui/fragment/findings`. It shows the number of open findings (and
+how many are acknowledged), the newest six not acknowledged ones with age,
+severity, source and title, "+N more" beyond that, or "No open findings", and
+links to the UI. Titles and sources are escaped.
+
+The manifest is public, the portal's server reads it without a session. The
+fragment is loaded by the viewer's browser on the portal's origin and is behind
+the same login as the UI: the session cookie's Path is the prefix, so the
+browser sends it to `<BASE_PATH>/ui/fragment/findings`. Without a valid session
+the fragment answers `200` with "Log in to see open findings" and a link to the
+login page, no findings (a redirect would put the login page into the card).
+
 ## Heartbeat and watchdog
 
 Who watches the watcher (central instance, on by default):
@@ -364,6 +381,8 @@ spec:
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
 | `/ui/` | `GET` | Login | Web UI |
+| `/ui/manifest.json` | `GET` | None | Fragments offered to homerun2-portal (none on an agent) |
+| `/ui/fragment/findings` | `GET` | Login | Open findings as bare HTML in the portal's `hr-*` classes; without a session a login hint |
 | `/health` | `GET` | None | Liveness (version, commit, date) |
 | `/ready` | `GET` | None | `200` once the scheduler runs and the state store answers |
 | `/metrics` | `GET` | None | Prometheus metrics |
