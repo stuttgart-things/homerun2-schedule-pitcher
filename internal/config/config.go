@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 
 	homerun "github.com/stuttgart-things/homerun-library/v4"
@@ -47,6 +48,12 @@ type Config struct {
 	AuthToken string
 	// AuthTokenSecret names the Secret holding AUTH_TOKEN (login page hint).
 	AuthTokenSecret string
+	// AuthTrustForwardedUser lets the UI take X-Forwarded-User (set by
+	// sthings-portal) as the logged-in user; AuthForwardedGroups (comma list,
+	// AUTH_FORWARDED_GROUPS) limits it to users in one of these groups.
+	// Never used for /api/* or POST /findings.
+	AuthTrustForwardedUser bool
+	AuthForwardedGroups    string
 	// PodNamespace is where this instance runs (login page hint).
 	PodNamespace string
 	// PitchTarget is http (omni-pitcher from the profile), file or stdout.
@@ -72,20 +79,22 @@ type Config struct {
 // Load reads the configuration once at startup.
 func Load() Config {
 	return Config{
-		ProfilePath:     homerun.GetEnv("PROFILE_PATH", "/etc/homerun2-schedule-pitcher/profile.yaml"),
-		Port:            homerun.GetEnv("PORT", "8080"),
-		AuthToken:       homerun.GetEnv("AUTH_TOKEN", ""),
-		AuthTokenSecret: homerun.GetEnv("AUTH_TOKEN_SECRET", "homerun2-schedule-pitcher-token"),
-		PodNamespace:    homerun.GetEnv("POD_NAMESPACE", ""),
-		PitchTarget:     homerun.GetEnv("PITCH_TARGET", "http"),
-		PitchFile:       homerun.GetEnv("PITCH_FILE", "pitched.log"),
-		PitcherToken:    homerun.GetEnv("PITCHER_TOKEN", ""),
-		PitcherAddr:     homerun.GetEnv("PITCHER_ADDR", ""),
-		ReportAddr:      homerun.GetEnv("REPORT_ADDR", ""),
-		ReportToken:     homerun.GetEnv("REPORT_TOKEN", ""),
-		RedisAddr:       homerun.GetEnv("REDIS_ADDR", ""),
-		RedisPort:       homerun.GetEnv("REDIS_PORT", ""),
-		RedisPassword:   homerun.GetEnv("REDIS_PASSWORD", ""),
+		ProfilePath:            homerun.GetEnv("PROFILE_PATH", "/etc/homerun2-schedule-pitcher/profile.yaml"),
+		Port:                   homerun.GetEnv("PORT", "8080"),
+		AuthToken:              homerun.GetEnv("AUTH_TOKEN", ""),
+		AuthTokenSecret:        homerun.GetEnv("AUTH_TOKEN_SECRET", "homerun2-schedule-pitcher-token"),
+		PodNamespace:           homerun.GetEnv("POD_NAMESPACE", ""),
+		AuthTrustForwardedUser: ParseBool("AUTH_TRUST_FORWARDED_USER", homerun.GetEnv("AUTH_TRUST_FORWARDED_USER", "false")),
+		AuthForwardedGroups:    homerun.GetEnv("AUTH_FORWARDED_GROUPS", ""),
+		PitchTarget:            homerun.GetEnv("PITCH_TARGET", "http"),
+		PitchFile:              homerun.GetEnv("PITCH_FILE", "pitched.log"),
+		PitcherToken:           homerun.GetEnv("PITCHER_TOKEN", ""),
+		PitcherAddr:            homerun.GetEnv("PITCHER_ADDR", ""),
+		ReportAddr:             homerun.GetEnv("REPORT_ADDR", ""),
+		ReportToken:            homerun.GetEnv("REPORT_TOKEN", ""),
+		RedisAddr:              homerun.GetEnv("REDIS_ADDR", ""),
+		RedisPort:              homerun.GetEnv("REDIS_PORT", ""),
+		RedisPassword:          homerun.GetEnv("REDIS_PASSWORD", ""),
 	}
 }
 
@@ -111,4 +120,19 @@ func ParseBasePath(s string) (string, error) {
 		}
 	}
 	return "/" + trimmed, nil
+}
+
+// ParseBool reads a boolean setting; anything but a valid true value (1, t,
+// true, ...) is false, and an invalid value is logged.
+func ParseBool(name, v string) bool {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return false
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		slog.Warn("invalid boolean setting, using false", "name", name, "value", v)
+		return false
+	}
+	return b
 }

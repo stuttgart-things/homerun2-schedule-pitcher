@@ -101,7 +101,8 @@
             <a href="{{base}}/ui/">Overview</a>
             {{if .HasFindings}}<a href="{{base}}/ui/resolved">Resolved</a>{{end}}
             <span class="who">{{.User}}</span>
-            <form method="post" action="{{base}}/ui/logout"><button>Log out</button></form>
+            {{if not .Forwarded}}<form method="post" action="{{base}}/ui/logout"><button>Log out</button></form>
+            {{- else if .PortalLogout}}<form method="post" action="{{.PortalLogout}}" target="_top" title="Logged in through the portal: ends the portal session"><button>Log out</button></form>{{end}}
         </div>
         {{end}}
     </div>

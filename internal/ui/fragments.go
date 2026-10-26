@@ -65,7 +65,8 @@ var findingsFragment = template.Must(template.New("findings").Funcs(template.Fun
 	"hrSeverity": hrSeverity,
 	"upper":      strings.ToUpper,
 }).Parse(`<div class="hr-frag">
-{{- if not .LoggedIn}}<span class="hr-muted">Log in to see open findings.</span><a class="hr-frag-more" href="{{.Base}}/ui/login">Log in →</a>
+{{- if .Denied}}<span class="hr-muted">You are not allowed to see the findings.</span>
+{{- else if not .LoggedIn}}<span class="hr-muted">Log in to see open findings.</span><a class="hr-frag-more" href="{{.Base}}/ui/login">Log in →</a>
 {{- else if .Err}}<span class="hr-muted">Findings unavailable: {{.Err}}</span><a class="hr-frag-more" href="{{.Base}}/ui/">Open schedule pitcher →</a>
 {{- else}}
 {{- if .Open}}<span class="hr-muted">{{len .Open}} open{{if .Acknowledged}}, {{.Acknowledged}} acknowledged{{end}}</span>
@@ -86,13 +87,19 @@ type fragmentItem struct {
 // findings, newest first. The portal loads it with htmx from the viewer's
 // browser, so it is behind the same login as the UI; without a session it
 // answers 200 with a login hint instead of a redirect, which htmx would
-// swap into the card.
+// swap into the card. With AUTH_TRUST_FORWARDED_USER the portal's
+// X-Forwarded-User counts as a session too; a forwarded user outside
+// AUTH_FORWARDED_GROUPS gets a "not allowed" line, also with 200.
 func (u *UI) findingsFrag(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Vary", "Cookie")
+	if u.Forwarded.Trust {
+		w.Header().Add("Vary", HeaderForwardedUser+", "+HeaderForwardedGroups)
+	}
 	data := struct {
 		LoggedIn     bool
+		Denied       bool
 		Err          string
 		Open         []findings.Finding
 		Acknowledged int
@@ -100,7 +107,9 @@ func (u *UI) findingsFrag(w http.ResponseWriter, r *http.Request) {
 		More         int
 		Base         string
 	}{Base: u.basePath}
-	if _, ok := u.Sessions.User(r); ok {
+	id := u.identify(r)
+	data.Denied = id.Denied
+	if id.ok() {
 		data.LoggedIn = true
 		list, err := u.Findings.List(r.Context(), "open", "")
 		if err != nil {
