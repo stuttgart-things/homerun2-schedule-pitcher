@@ -185,6 +185,65 @@ browser sends it to `<BASE_PATH>/ui/fragment/findings`. Without a valid session
 the fragment answers `200` with "Log in to see open findings" and a link to the
 login page, no findings (a redirect would put the login page into the card).
 
+### Login through sthings-portal
+
+sthings-portal logs users in itself (ZITADEL OIDC) and hands the identity to
+every service behind its proxy as **`X-Forwarded-User`** and
+**`X-Forwarded-Groups`** (comma-separated), after dropping whatever the client
+sent under these names. With `AUTH_TRUST_FORWARDED_USER=true` the UI takes
+that identity, so a user logged in at the portal does not log in a second time:
+
+- `X-Forwarded-User` present: the user is logged in under that name (shown in
+  the header, recorded on acknowledgements and Done). It wins over a session
+  cookie of the token login.
+- `AUTH_FORWARDED_GROUPS` (comma list, e.g. `portal-admin`): only users with
+  one of these groups in `X-Forwarded-Groups` get in (exact match); empty lets
+  every forwarded user in. A forwarded user outside these groups gets a
+  **403** page, not the token login (the token login is refused for them too),
+  and the fragment shows "You are not allowed to see the findings".
+- No `X-Forwarded-User`: the token login above, unchanged.
+- **Log out** under a forwarded identity posts to the portal's
+  `/auth/logout` (in the top window, not the frame): it ends the portal
+  session (and the ZITADEL one), not only this UI's.
+- `/api/*` and `POST /findings` never look at these headers: they need the
+  bearer token, always.
+- Form posts keep the same-origin check, and under a forwarded identity they
+  must carry `Origin` or `Referer` (there is no SameSite=Strict cookie of ours
+  behind the request).
+
+Off by default. The headers are only trustworthy when **every path to the
+pod goes through the portal**:
+
+- **Direct route**: the HTTPRoute of the KCL module (`schedule-pitcher.<domain>`,
+  for the agents' `POST /findings`) removes both headers with a
+  `RequestHeaderModifier` filter, whatever the setting is. Any other route or
+  ingress to the Service has to do the same, otherwise anyone on the internet
+  can send `X-Forwarded-User: admin`.
+- **Inside the cluster** every pod that reaches the Service can still send the
+  headers. Where that matters, allow ingress only from the portal, the
+  gateway and the monitoring, e.g. with Cilium (an example, adapt the
+  selectors):
+
+```yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: homerun2-schedule-pitcher
+  namespace: homerun2
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: homerun2-schedule-pitcher
+  ingress:
+    - fromEndpoints: # the portal's proxy
+        - matchLabels:
+            app.kubernetes.io/name: sthings-portal
+    - fromEntities: [ingress] # the Gateway (route above, headers removed)
+    - fromEndpoints: # Prometheus scraping /metrics
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: monitoring
+```
+
 ## Heartbeat and watchdog
 
 Who watches the watcher (central instance, on by default):
@@ -439,6 +498,8 @@ Metrics: `schedule_pitcher_check_last_run_timestamp_seconds{check}`,
 | `POD_NAMESPACE` | Namespace for `secretKeyRef` without namespace | pod namespace |
 | `LOG_FORMAT` | `json` or `text` | `json` |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, `error` | `info` |
+| `AUTH_TRUST_FORWARDED_USER` | `true`: the UI and the fragment take `X-Forwarded-User` from sthings-portal as the logged-in user (see "Login through sthings-portal"; only with a route that removes the header). Never used for `/api/*` or `POST /findings` | `false` |
+| `AUTH_FORWARDED_GROUPS` | Comma list: only forwarded users with one of these groups in `X-Forwarded-Groups` get in, others get 403. Empty: every forwarded user | |
 | `AUTH_TOKEN_SECRET` | Secret named on the login page as the token's source | `homerun2-schedule-pitcher-token` |
 | `LOG_HEALTH_CHECKS` | Also log `/health`, `/ready`, `/metrics` requests | `false` |
 

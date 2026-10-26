@@ -30,3 +30,11 @@ func TestParseBasePath(t *testing.T) {
 		}
 	}
 }
+
+func TestParseBool(t *testing.T) {
+	for in, want := range map[string]bool{"": false, "false": false, "0": false, "yes": false, "true": true, "TRUE": true, " 1 ": true} {
+		if got := ParseBool("X", in); got != want {
+			t.Errorf("ParseBool(%q) = %v, want %v", in, got, want)
+		}
+	}
+}

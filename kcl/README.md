@@ -23,7 +23,7 @@ kcl run kcl/main.k -D config.mode=agent -D config.reportToken=changeme \
 | `config.extraEnvVars` | `{}` | both |
 | `config.redisAddr`, `config.redisPort`, `config.redisPassword` | `redis-stack.homerun2.svc.cluster.local`, `6379` | central |
 | `config.pitcherToken` | | central: Secret `<name>-pitcher` |
-| `config.httpRouteEnabled`, `...ParentRefName`, `...ParentRefNamespace`, `...Hostname` | off | central |
+| `config.httpRouteEnabled`, `...ParentRefName`, `...ParentRefNamespace`, `...Hostname` | off | central; the route always removes `X-Forwarded-User` and `X-Forwarded-Groups` (only sthings-portal may set them, see `AUTH_TRUST_FORWARDED_USER`) |
 | `config.reportToken` | | agent: Secret `<name>-report` |
 | `config.agentKind` | `cronjob` (`run`) or `deployment` (`serve`) | agent |
 | `config.agentSchedule` | `0 */6 * * *` | agent |

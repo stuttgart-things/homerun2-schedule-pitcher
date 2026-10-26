@@ -46,6 +46,11 @@ instance runs on platform and uses the homerun2 `redis-stack`. The Dagger module
   `/ui/manifest.json` and `/ui/fragment/findings` (bare HTML in the portal's
   `hr-*` classes, URLs under `BASE_PATH`); the fragment needs the session and
   answers 200 with a login hint without one, never a redirect
+- `internal/ui/forwarded.go`: opt-in login through sthings-portal
+  (`AUTH_TRUST_FORWARDED_USER`, `AUTH_FORWARDED_GROUPS`, #62):
+  `X-Forwarded-User` counts as the session in the UI and the fragment, a
+  forwarded user outside the groups gets 403; `/api/*` and `POST /findings`
+  never read the header; the KCL HTTPRoute removes it
 - `internal/discovery`: labelled Secrets -> checks, `Loop` syncs them into
   the scheduler (`Scheduler.Sync`); tests use the client-go fake clientset
 

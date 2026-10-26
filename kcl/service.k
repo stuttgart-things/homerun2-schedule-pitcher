@@ -46,6 +46,15 @@ httproute = {
         rules: [
             {
                 matches: [{path: {type: "PathPrefix", value: "/"}}]
+                # The identity sthings-portal forwards (#62) only counts when it
+                # came through the portal: this direct route always drops it,
+                # whatever AUTH_TRUST_FORWARDED_USER is.
+                filters: [
+                    {
+                        type: "RequestHeaderModifier"
+                        requestHeaderModifier: {remove: ["X-Forwarded-User", "X-Forwarded-Groups"]}
+                    }
+                ]
                 backendRefs: [{group: "", kind: "Service", name: config.name, port: config.servicePort, weight: 1}]
             }
         ]

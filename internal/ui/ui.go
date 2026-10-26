@@ -58,6 +58,9 @@ type UI struct {
 	// the hint on the login page; empty TokenSecret hides the hint.
 	TokenSecret    string
 	TokenNamespace string
+	// Forwarded lets sthings-portal's X-Forwarded-User log in (#62); off
+	// unless set.
+	Forwarded ForwardedAuth
 	// basePath prefixes every URL the UI hands out (BASE_PATH, e.g.
 	// "/schedule" behind homerun2-portal); see SetBasePath.
 	basePath string
@@ -145,18 +148,33 @@ func (u *UI) Register(mux *http.ServeMux) {
 type ctxKey struct{}
 
 func user(r *http.Request) string {
-	name, _ := r.Context().Value(ctxKey{}).(string)
-	return name
+	return userOf(r).Name
+}
+
+func userOf(r *http.Request) identity {
+	id, _ := r.Context().Value(ctxKey{}).(identity)
+	return id
 }
 
 func (u *UI) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		name, ok := u.Sessions.User(r)
-		if !ok {
+		id := u.identify(r)
+		switch {
+		case id.Denied:
+			u.forbidden(w, r, id)
+			return
+		case !id.ok():
 			http.Redirect(w, r, u.path("/ui/login?next=")+url.QueryEscape(u.path(r.URL.Path)), http.StatusSeeOther)
 			return
 		}
-		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, name)))
+		// A forwarded identity has no SameSite=Strict cookie of ours behind
+		// it (the portal's is Lax), so a form post must also show where it
+		// came from; sameOrigin then checks that it is this origin.
+		if id.Forwarded && r.Method == http.MethodPost && r.Header.Get("Origin") == "" && r.Header.Get("Referer") == "" {
+			http.Error(w, "missing Origin", http.StatusForbidden)
+			return
+		}
+		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, id)))
 	}
 }
 
@@ -185,6 +203,11 @@ func (u *UI) sameOrigin(next http.HandlerFunc) http.HandlerFunc {
 type page struct {
 	Title, Version, Mode, User, Flash, Error string
 	HasFindings                              bool
+	// Forwarded: the user came from sthings-portal's X-Forwarded-User;
+	// "Log out" then ends the portal session (PortalLogout, hidden when
+	// empty) instead of the local one.
+	Forwarded    bool
+	PortalLogout string
 	// PortalTheme links homerun2-portal's design tokens: the request came
 	// through the portal, which sets X-Forwarded-Prefix.
 	PortalTheme bool
@@ -192,11 +215,17 @@ type page struct {
 }
 
 func (u *UI) render(w http.ResponseWriter, r *http.Request, name string, data any) {
+	u.renderStatus(w, r, http.StatusOK, name, data)
+}
+
+func (u *UI) renderStatus(w http.ResponseWriter, r *http.Request, status int, name string, data any) {
+	id := userOf(r)
 	p := page{
-		Title: u.Title, Version: u.Version, Mode: u.Mode, User: user(r),
+		Title: u.Title, Version: u.Version, Mode: u.Mode, User: id.Name,
 		Flash: r.URL.Query().Get("flash"), Error: r.URL.Query().Get("error"),
 		HasFindings: u.Findings != nil, Data: data,
 		PortalTheme: r.Header.Get("X-Forwarded-Prefix") != "",
+		Forwarded:   id.Forwarded, PortalLogout: u.Forwarded.LogoutPath,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -204,6 +233,10 @@ func (u *UI) render(w http.ResponseWriter, r *http.Request, name string, data an
 	// origin, every other site still cannot frame it.
 	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 	w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'")
+	if u.Forwarded.Trust {
+		w.Header().Add("Vary", HeaderForwardedUser+", "+HeaderForwardedGroups)
+	}
+	w.WriteHeader(status)
 	if err := u.tmpl.ExecuteTemplate(w, name, p); err != nil {
 		slog.Error("rendering page failed", "page", name, "error", err)
 	}
@@ -214,8 +247,12 @@ func redirect(w http.ResponseWriter, r *http.Request, path, key, msg string) {
 }
 
 func (u *UI) loginPage(w http.ResponseWriter, r *http.Request) {
-	if _, ok := u.Sessions.User(r); ok {
-		http.Redirect(w, r, u.path("/ui/"), http.StatusFound)
+	switch id := u.identify(r); {
+	case id.Denied:
+		u.forbidden(w, r, id)
+		return
+	case id.ok():
+		http.Redirect(w, r, u.safeNext(r.URL.Query().Get("next")), http.StatusFound)
 		return
 	}
 	hint := ""
@@ -235,6 +272,16 @@ func (u *UI) loginPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (u *UI) login(w http.ResponseWriter, r *http.Request) {
+	// A forwarded user is logged in by the portal; one it keeps out does not
+	// get in with the token either.
+	if id := u.identify(r); id.Forwarded {
+		if id.Denied {
+			u.forbidden(w, r, id)
+			return
+		}
+		http.Redirect(w, r, u.safeNext(r.FormValue("next")), http.StatusSeeOther)
+		return
+	}
 	next := u.safeNext(r.FormValue("next"))
 	name := strings.TrimSpace(r.FormValue("name"))
 	if !u.Sessions.CheckToken(r.FormValue("token")) || name == "" || len(name) > 64 {
