@@ -23,6 +23,7 @@ _opts = {
     discoveryNamespaces = option("config.discoveryNamespaces")
     scheduledRunEnabled = option("config.scheduledRunEnabled")
     scheduledRunTargets = option("config.scheduledRunTargets")
+    k8sResourceTargets = option("config.k8sResourceTargets")
     httpRouteEnabled = option("config.httpRouteEnabled")
     httpRouteParentRefName = option("config.httpRouteParentRefName")
     httpRouteParentRefNamespace = option("config.httpRouteParentRefNamespace")
@@ -75,6 +76,11 @@ config: schema.SchedulePitcher = schema.SchedulePitcher {
             apiGroup = t.apiGroup
             resources = t.resources
         } for t in _opts.scheduledRunTargets]
+    if _opts.k8sResourceTargets:
+        k8sResourceTargets = [schema.K8sResourceTarget {
+            apiGroup = t.apiGroup or ""
+            resources = t.resources
+        } for t in _opts.k8sResourceTargets]
     if _opts.httpRouteEnabled:
         httpRouteEnabled = _opts.httpRouteEnabled in [True, "True", "true"]
     if _opts.httpRouteParentRefName:

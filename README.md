@@ -66,6 +66,7 @@ the host name is error.
 | `vault-token-ttl` | `GET /v1/auth/token/lookup-self` with the token itself against `addr` (Vault or OpenBao; `caFile`, `insecure`, `vaultNamespace`). Days left = `ttl`. A **periodic, renewable token with less than half of its period left is not being renewed** and is at least `warning` (the failure of stuttgart-things/stuttgart-things#3502, about two weeks early). `403` / bad token is `critical` (expired, revoked, or the policy lacks read on `auth/token/lookup-self`). `ttl: 0` (root, non-expiring) is `info` once. The check never renews the token. |
 | `tls-endpoint` | TLS dial to `target` (`host[:port]`, port defaults to 443) with SNI, reads the leaf `NotAfter`, or the earliest `NotAfter` of the presented chain with `chain: true`. Trust and host name are verified against the system roots plus `caFile`. An expired certificate is still read and reported. |
 | `scheduled-run` | Lists Crossplane `ScheduledRun`s (stuttgart-things/crossplane-configurations `cicd/scheduled-run`) matching `selector` (`namespaces`, empty or `"*"` = all; `labels`) and reports all of them as one result, e.g. `3 ScheduledRuns: 1 ok, 1 failed, 1 suspended`. Per ScheduledRun: **stale** (`error`) when `status.lastScheduleTime` (or, before the first tick, the creation time) is older than `maxAge`, by default one missed tick of its own `spec.schedule` plus 10 minutes (UTC); **failed** (`error`) when the create job of the last tick did not succeed (`lastScheduleTime` after `lastSuccessfulTime`), or when the newest instance it created (owner label, kind from `spec.manifest`) failed: Job `Failed`, Tekton `Succeeded=False`, a Crossplane XR not `Ready`. An unfinished instance younger than `runTimeout` (default `6h`) is skipped for the one before it; older, it counts as failed. `spec.suspend: true` is listed as suspended and not checked. No ScheduledRun found is `warning`. The finding resolves when all are ok again. Needs `get`/`list` on `scheduledruns` and the target kinds (KCL `config.scheduledRunEnabled`, `config.scheduledRunTargets`). |
+| `k8s-resource` | Lists the objects of one `resource` (`group`, empty for the core API; `version`; `resource`, plural) matching `selector` (`namespaces`, empty or `"*"` = all, leave it empty for cluster-scoped resources; `labels`) and reports all of them as one result, e.g. `10 volumes: 9 ok, 1 error`. An object is bad when one of its `rules` matches; its band is the **worst** matching rule's `band` (`warning`, `error` (default), `critical`), and the result is the worst object. A rule is a `path` (dot-separated, e.g. `.status.robustness`) with exactly one of `equals`, `notEquals`, `in`, `notIn`, `exists: true`, `missing: true`, or a `condition: {type, status}` that matches an entry of `.status.conditions[]` (status case-insensitive). Values are compared as strings; a missing field matches `notEquals` and `notIn`. The problem names the bad objects, worst first, at most 10 (`displayPath`, e.g. `.status.kubernetesStatus.pvcName`, instead of `namespace/name`). `minAge` (optional): an object must have been bad that long before it counts, counted across runs in the check state; until then it is listed as `pending`. This needs `serve` (Redis or memory state); a one-pass `run`, e.g. the agent CronJob, ignores `minAge` with a warning. No object found is `warning`; a list error (RBAC, unknown resource) is could-not-check. Needs `get`/`list` on the resource (KCL `config.k8sResourceTargets`). |
 
 ### Profile
 
@@ -113,6 +114,23 @@ spec:
         labels: {}             # optional
       maxAge: 26h              # optional; default: one missed tick of the schedule
       runTimeout: 6h
+    - id: harvester-longhorn-volumes
+      type: k8s-resource
+      description: Longhorn volumes that are not healthy
+      resource: { group: longhorn.io, version: v1beta2, resource: volumes }
+      selector:
+        namespaces: [longhorn-system]   # empty or "*" = all
+      rules:                   # bad when one matches; the worst band counts
+        - path: .status.robustness
+          notIn: [healthy, unknown]   # unknown = detached
+          band: error
+        - path: .status.robustness
+          in: [faulted]
+          band: critical
+        # - condition: { type: Ready, status: "False" }
+      displayPath: .status.kubernetesStatus.pvcName   # optional, else namespace/name
+      minAge: 30m              # optional; needs serve (state between runs)
+      url: https://harvester.sthings.lab/dashboard/c/local/longhorn
 ```
 
 Secret values (`tokenFrom`, `passwordFrom`) take exactly one of

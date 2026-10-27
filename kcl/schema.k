@@ -14,6 +14,11 @@ schema ScheduledRunTarget:
     apiGroup: str
     resources: [str]
 
+schema K8sResourceTarget:
+    """Resources the k8s-resource check reads (get, list); apiGroup "" is the core API"""
+    apiGroup: str = ""
+    resources: [str]
+
 schema SchedulePitcher:
     """Configuration for a homerun2-schedule-pitcher deployment"""
 
@@ -65,6 +70,11 @@ schema SchedulePitcher:
     # Jobs). Central and agent.
     scheduledRunEnabled: bool = False
     scheduledRunTargets: [ScheduledRunTarget] = []
+
+    # k8s-resource check: a ClusterRole to get/list the resources its
+    # checks read, e.g. {apiGroup: longhorn.io, resources: [volumes]}.
+    # Central and agent; none without targets.
+    k8sResourceTargets: [K8sResourceTarget] = []
 
     # central: Service and HTTPRoute (UI, API and the agents' POST /findings)
     servicePort: int = 80

@@ -328,7 +328,13 @@ func (s *Scheduler) run(ctx context.Context, id string) (state.State, error) {
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, 3*e.check.Timeout.D())
-	res, runErr := e.checker.Run(runCtx)
+	var res checks.Result
+	var runErr error
+	if pc, ok := e.checker.(checks.PriorChecker); ok {
+		res, runErr = pc.RunWithPrior(runCtx, checks.Prior{BadSince: prev.BadSince})
+	} else {
+		res, runErr = e.checker.Run(runCtx)
+	}
 	cancel()
 
 	next, notes := state.Evaluate(prev, res, runErr, s.now().In(s.loc), e.check.Thresholds, e.remind)

@@ -144,6 +144,11 @@ func subject(c profile.Check, n state.Notification) string {
 		return "Vault token " + c.ID
 	case profile.TypeScheduledRun:
 		return "ScheduledRuns " + c.ID
+	case profile.TypeK8sResource:
+		if c.Resource != nil {
+			return c.Resource.String() + " " + c.ID
+		}
+		return c.ID
 	default:
 		return c.ID
 	}
@@ -157,6 +162,8 @@ func noun(checkType string) string {
 		return "certificate"
 	case profile.TypeScheduledRun:
 		return "runs"
+	case profile.TypeK8sResource:
+		return "resources"
 	default:
 		return "check"
 	}

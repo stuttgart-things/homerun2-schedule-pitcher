@@ -1,0 +1,56 @@
+---
+# Agent on Harvester (#64): Longhorn volumes that are not healthy.
+# Render: task render-agent with this file, or
+#   dagger call -m github.com/stuttgart-things/dagger/kcl@v0.134.0 run --source kcl --parameters-file tests/kcl-agent-harvester.yaml
+config.mode: agent
+config.name: homerun2-schedule-pitcher-agent
+config.image: ghcr.io/stuttgart-things/homerun2-schedule-pitcher:main
+config.namespace: homerun2-agent
+config.agentKind: cronjob
+config.agentSchedule: "21 */6 * * *"
+config.trustBundleConfigMap: cluster-trust-bundle
+config.k8sResourceTargets:
+  - apiGroup: longhorn.io
+    resources: [volumes]
+config.profileYaml: |
+  # Agent on Harvester (#64): reports Longhorn volumes that are not healthy to
+  # the central instance on platform. On the single-node Harvester, volumes
+  # with 3 replicas stay degraded and block PVC expansion
+  # (stuttgart-things/harvester#573).
+  #
+  # The agent's ServiceAccount needs get/list on volumes.longhorn.io
+  # (KCL: config.k8sResourceTargets). minAge needs state between runs, so it
+  # only works with agentKind deployment (serve); the CronJob (run) ignores it.
+  apiVersion: homerun2.sthings.io/v1alpha1
+  kind: SchedulePitcherProfile
+  metadata:
+    name: harvester
+  spec:
+    report:
+      addr: https://homerun2-schedule-pitcher.platform.sthings-vsphere.labul.sva.de/findings
+      caFile: /etc/ssl/custom/trust-bundle.pem
+      auth:
+        tokenFrom:
+          env: REPORT_TOKEN
+    defaults:
+      schedule: "0 */6 * * *"
+    checks:
+      - id: harvester-longhorn-volumes
+        type: k8s-resource
+        description: Longhorn volumes that are not healthy
+        resource:
+          group: longhorn.io
+          version: v1beta2
+          resource: volumes
+        selector:
+          namespaces: [longhorn-system]
+        rules:
+          - path: .status.robustness
+            notIn: [healthy, unknown]   # unknown = detached
+            band: error
+          - path: .status.robustness
+            in: [faulted]
+            band: critical
+        displayPath: .status.kubernetesStatus.pvcName
+        url: https://harvester.sthings.lab/dashboard/c/local/longhorn
+        tags: [longhorn, storage]

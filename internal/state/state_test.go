@@ -188,3 +188,19 @@ func TestNoExpiryInfoOnce(t *testing.T) {
 		t.Fatalf("after change: %v", kinds(ns))
 	}
 }
+
+func TestBadSinceKeptAcrossFailures(t *testing.T) {
+	since := map[string]time.Time{"longhorn-system/pvc-1": start}
+	s, _ := Evaluate(New("c"), checks.Result{Summary: "1 volume: 1 pending", BadSince: since}, nil, start, thresholds, remind)
+	if !s.BadSince["longhorn-system/pvc-1"].Equal(start) {
+		t.Fatalf("BadSince not stored: %v", s.BadSince)
+	}
+	s, _ = Evaluate(s, checks.Result{}, errors.New("forbidden"), start.Add(time.Hour), thresholds, remind)
+	if len(s.BadSince) != 1 {
+		t.Fatalf("a failing run must keep BadSince: %v", s.BadSince)
+	}
+	s, _ = Evaluate(s, checks.Result{Summary: "1 volume: 1 ok"}, nil, start.Add(2*time.Hour), thresholds, remind)
+	if len(s.BadSince) != 0 {
+		t.Fatalf("a run without bad objects must clear BadSince: %v", s.BadSince)
+	}
+}

@@ -36,6 +36,10 @@ type State struct {
 	FailPitchedAt time.Time   `json:"failPitchedAt"`
 	// NoExpiryNotified is set once the "never expires" info was pitched.
 	NoExpiryNotified bool `json:"noExpiryNotified"`
+
+	// BadSince is since when each object of a k8s-resource check with
+	// minAge has been bad; kept across runs, unchanged by a failing run.
+	BadSince map[string]time.Time `json:"badSince,omitempty"`
 }
 
 // New returns the state of a check that never ran.
@@ -133,6 +137,7 @@ func Evaluate(prev State, res checks.Result, runErr error, now time.Time, thresh
 	next.Summary = res.Summary
 	next.Subject = res.Subject
 	next.Problem = res.Problem
+	next.BadSince = res.BadSince
 
 	if prev.Failing {
 		next.Failing = false

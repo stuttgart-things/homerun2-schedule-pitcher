@@ -131,7 +131,14 @@ func (r *Redis) Unlock(ctx context.Context, id string) error {
 }
 
 func encodeState(s state.State) map[string]any {
+	// badSince: JSON object of object key -> RFC3339 time (k8s-resource minAge).
+	badSince := ""
+	if len(s.BadSince) > 0 {
+		b, _ := json.Marshal(s.BadSince)
+		badSince = string(b)
+	}
 	return map[string]any{
+		"badSince":         badSince,
 		"band":             s.Band.String(),
 		"lastRun":          encodeTime(s.LastRun),
 		"lastOk":           encodeTime(s.LastOK),
@@ -166,6 +173,11 @@ func decodeState(id string, h map[string]string) (state.State, error) {
 	// An unknown pitched band would re-pitch; ok means nothing is open.
 	if s.PitchedBand == status.Unknown {
 		s.PitchedBand = status.OK
+	}
+	if raw := h["badSince"]; raw != "" {
+		if err := json.Unmarshal([]byte(raw), &s.BadSince); err != nil {
+			return state.State{}, fmt.Errorf("state of %s: field badSince: %w", id, err)
+		}
 	}
 	var err error
 	for field, dst := range map[string]*time.Time{

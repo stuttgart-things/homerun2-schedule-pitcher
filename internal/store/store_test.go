@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -31,12 +32,13 @@ func TestStateRoundTrip(t *testing.T) {
 		CheckID: "pat", Band: status.Error, LastRun: ts, LastOK: ts.Add(-time.Hour), Expiry: ts.Add(72 * time.Hour),
 		Summary: "token expires", Subject: "octocat", Problem: "p", Failing: true, FailingSince: ts,
 		LastError: "boom", PitchedBand: status.Error, PitchedAt: ts, FailPitchedAt: ts, NoExpiryNotified: true,
+		BadSince: map[string]time.Time{"longhorn-system/pvc-1": ts},
 	}
 	for name, s := range stores(t) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
 			got, err := s.Get(ctx, "pat")
-			if err != nil || got != state.New("pat") {
+			if err != nil || !reflect.DeepEqual(got, state.New("pat")) {
 				t.Fatalf("empty Get = %+v, %v", got, err)
 			}
 			if err := s.Put(ctx, want); err != nil {
@@ -46,12 +48,13 @@ func TestStateRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !got.LastRun.Equal(want.LastRun) || !got.Expiry.Equal(want.Expiry) {
+			if !got.LastRun.Equal(want.LastRun) || !got.Expiry.Equal(want.Expiry) || !got.BadSince["longhorn-system/pvc-1"].Equal(ts) {
 				t.Fatalf("times differ: %+v", got)
 			}
 			// Compare without monotonic/location details.
 			got.LastRun, got.LastOK, got.Expiry, got.FailingSince, got.PitchedAt, got.FailPitchedAt = want.LastRun, want.LastOK, want.Expiry, want.FailingSince, want.PitchedAt, want.FailPitchedAt
-			if got != want {
+			got.BadSince = want.BadSince
+			if !reflect.DeepEqual(got, want) {
 				t.Fatalf("Get = %+v\nwant %+v", got, want)
 			}
 
