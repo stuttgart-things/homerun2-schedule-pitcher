@@ -182,6 +182,7 @@ const (
 	TypeTLSEndpoint       = "tls-endpoint"
 	TypeVaultTokenTTL     = "vault-token-ttl"
 	TypeScheduledRun      = "scheduled-run"
+	TypeK8sResource       = "k8s-resource"
 )
 
 // DefaultRunTimeout is how long a scheduled-run instance may stay unfinished
@@ -229,6 +230,18 @@ type Check struct {
 	// (default 6h).
 	RunTimeout Duration `yaml:"runTimeout"`
 
+	// k8s-resource (selector and url as well)
+	Resource *Resource `yaml:"resource"`
+	// Rules: an object is bad when one matches; its band is the worst of
+	// the matching rules.
+	Rules []Rule `yaml:"rules"`
+	// DisplayPath names an object in the summary instead of
+	// namespace/name, e.g. .status.kubernetesStatus.pvcName.
+	DisplayPath string `yaml:"displayPath"`
+	// MinAge: an object must stay bad this long before it counts (needs
+	// state between runs, i.e. serve).
+	MinAge Duration `yaml:"minAge"`
+
 	// tls-endpoint
 	Target     string   `yaml:"target"`
 	ServerName string   `yaml:"serverName"`
@@ -243,4 +256,44 @@ type Selector struct {
 	Namespaces []string `yaml:"namespaces"`
 	// Labels must all match.
 	Labels map[string]string `yaml:"labels"`
+}
+
+// Resource is a Kubernetes resource by group, version and plural name.
+// Group is empty for the core API.
+type Resource struct {
+	Group    string `yaml:"group"`
+	Version  string `yaml:"version"`
+	Resource string `yaml:"resource"`
+}
+
+// String renders the resource like kubectl, e.g. volumes.longhorn.io.
+func (r Resource) String() string {
+	if r.Group == "" {
+		return r.Resource
+	}
+	return r.Resource + "." + r.Group
+}
+
+// Rule marks an object as bad. It has either a condition, or a path with
+// exactly one of equals, notEquals, in, notIn, exists or missing. Values are
+// compared as strings.
+type Rule struct {
+	// Path is a dot-separated field path, e.g. .status.robustness.
+	Path      string   `yaml:"path"`
+	Equals    *string  `yaml:"equals"`
+	NotEquals *string  `yaml:"notEquals"`
+	In        []string `yaml:"in"`
+	NotIn     []string `yaml:"notIn"`
+	Exists    bool     `yaml:"exists"`
+	Missing   bool     `yaml:"missing"`
+	// Condition matches an entry of .status.conditions[].
+	Condition *ConditionMatch `yaml:"condition"`
+	// Band is warning, error (default) or critical.
+	Band string `yaml:"band"`
+}
+
+// ConditionMatch matches a status condition by type and status.
+type ConditionMatch struct {
+	Type   string `yaml:"type"`
+	Status string `yaml:"status"`
 }

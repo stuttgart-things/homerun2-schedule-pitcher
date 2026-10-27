@@ -295,6 +295,7 @@ func runOnce(cfg config.Config, args []string) error {
 	if err != nil {
 		return err
 	}
+	ignoreMinAge(prof)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -352,6 +353,17 @@ func runOnce(cfg config.Config, args []string) error {
 		printStatuses(statuses)
 	}
 	return err
+}
+
+// ignoreMinAge drops minAge for a one-pass run: without state from earlier
+// runs every bad object would stay pending and never be reported.
+func ignoreMinAge(prof *profile.SchedulePitcherProfile) {
+	for i, c := range prof.Spec.Checks {
+		if c.MinAge > 0 && c.Type == profile.TypeK8sResource {
+			slog.Warn("minAge needs state between runs (serve); run counts bad objects right away", "check", c.ID, "minAge", c.MinAge.String())
+			prof.Spec.Checks[i].MinAge = 0
+		}
+	}
 }
 
 func printStatuses(statuses []scheduler.CheckStatus) {

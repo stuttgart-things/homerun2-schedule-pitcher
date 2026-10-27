@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -43,6 +44,21 @@ func TestLoadExample(t *testing.T) {
 	}
 	if tlsCheck.Thresholds.Error.D() != 7*day {
 		t.Errorf("tls thresholds not from defaults: %+v", tlsCheck.Thresholds)
+	}
+}
+
+// TestExampleProfiles keeps the examples under profiles/ loadable.
+func TestExampleProfiles(t *testing.T) {
+	files, err := filepath.Glob("../../profiles/*.yaml")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no example profiles: %v", err)
+	}
+	for _, f := range files {
+		t.Run(filepath.Base(f), func(t *testing.T) {
+			if _, err := Load(f); err != nil {
+				t.Error(err)
+			}
+		})
 	}
 }
 
@@ -167,6 +183,18 @@ func TestParseErrors(t *testing.T) {
 		{"reminder bad cron", head + "spec:\n  reminders:\n    - {id: r, title: t, recurrence: 'weekly'}\n", "recurrence"},
 		{"reminder no title", head + "spec:\n  reminders:\n    - {id: r, due: '2027-01-01'}\n", "title is required"},
 		{"reminder duplicate", head + "spec:\n  reminders:\n    - {id: r, title: t, due: '2027-01-01'}\n    - {id: r, title: t, due: '2027-01-02'}\n", "duplicate id"},
+		{"k8s-resource without resource", head + "spec:\n  checks:\n    - {id: a, type: k8s-resource, rules: [{path: .status.x, exists: true}]}\n", "resource with version and resource is required"},
+		{"k8s-resource without rules", head + "spec:\n  checks:\n    - {id: a, type: k8s-resource, resource: {version: v1, resource: pods}}\n", "at least one rule"},
+		{"k8s-resource two operators", head + "spec:\n  checks:\n    - {id: a, type: k8s-resource, resource: {version: v1, resource: pods}, rules: [{path: .status.phase, equals: Failed, exists: true}]}\n", "exactly one of equals"},
+		{"k8s-resource no operator", head + "spec:\n  checks:\n    - {id: a, type: k8s-resource, resource: {version: v1, resource: pods}, rules: [{path: .status.phase}]}\n", "exactly one of equals"},
+		{"k8s-resource no path", head + "spec:\n  checks:\n    - {id: a, type: k8s-resource, resource: {version: v1, resource: pods}, rules: [{equals: x}]}\n", "path or condition is required"},
+		{"k8s-resource bad path", head + "spec:\n  checks:\n    - {id: a, type: k8s-resource, resource: {version: v1, resource: pods}, rules: [{path: .status..phase, exists: true}]}\n", "path or condition is required"},
+		{"k8s-resource empty in", head + "spec:\n  checks:\n    - {id: a, type: k8s-resource, resource: {version: v1, resource: pods}, rules: [{path: .status.phase, notIn: []}]}\n", "at least one value"},
+		{"k8s-resource bad band", head + "spec:\n  checks:\n    - {id: a, type: k8s-resource, resource: {version: v1, resource: pods}, rules: [{path: .status.phase, exists: true, band: info}]}\n", "band must be"},
+		{"k8s-resource condition and path", head + "spec:\n  checks:\n    - {id: a, type: k8s-resource, resource: {version: v1, resource: pods}, rules: [{path: .status.phase, condition: {type: Ready, status: 'False'}}]}\n", "condition cannot be combined"},
+		{"k8s-resource condition without status", head + "spec:\n  checks:\n    - {id: a, type: k8s-resource, resource: {version: v1, resource: pods}, rules: [{condition: {type: Ready}}]}\n", "condition needs type and status"},
+		{"k8s-resource bad displayPath", head + "spec:\n  checks:\n    - {id: a, type: k8s-resource, resource: {version: v1, resource: pods}, rules: [{path: .status.phase, exists: true}], displayPath: '.'}\n", "displayPath"},
+		{"k8s-resource unknown rule field", head + "spec:\n  checks:\n    - {id: a, type: k8s-resource, resource: {version: v1, resource: pods}, rules: [{path: .status.phase, matches: x}]}\n", "matches"},
 		{"office hours", head + "spec:\n  findings: { officeHours: { start: 18, end: 8 } }\n", "officeHours"},
 	}
 	for _, tt := range tests {
@@ -264,5 +292,54 @@ spec:
 	}
 	if c.MaxAge.D() != 26*time.Hour || c.RunTimeout.D() != DefaultRunTimeout {
 		t.Errorf("maxAge/runTimeout = %v/%v", c.MaxAge, c.RunTimeout)
+	}
+}
+
+func TestParseK8sResource(t *testing.T) {
+	p, err := Parse([]byte(`
+apiVersion: homerun2.sthings.io/v1alpha1
+kind: SchedulePitcherProfile
+spec:
+  checks:
+    - id: harvester-longhorn-volumes
+      type: k8s-resource
+      resource: { group: longhorn.io, version: v1beta2, resource: volumes }
+      selector:
+        namespaces: [longhorn-system]
+      rules:
+        - path: .status.robustness
+          notIn: [healthy, unknown]
+        - path: .status.robustness
+          in: [faulted]
+          band: critical
+        - condition: { type: Ready, status: "False" }
+          band: warning
+        - path: .spec.numberOfReplicas
+          equals: 3
+      displayPath: .status.kubernetesStatus.pvcName
+      minAge: 30m
+      url: https://harvester.example/longhorn
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := p.Spec.Checks[0]
+	if c.Resource == nil || c.Resource.String() != "volumes.longhorn.io" || c.Resource.Version != "v1beta2" {
+		t.Errorf("resource = %+v", c.Resource)
+	}
+	if len(c.Rules) != 4 || c.Rules[0].Band != "error" || c.Rules[1].Band != "critical" || c.Rules[1].In[0] != "faulted" {
+		t.Errorf("rules = %+v", c.Rules)
+	}
+	if cm := c.Rules[2].Condition; cm == nil || cm.Type != "Ready" || cm.Status != "False" {
+		t.Errorf("condition = %+v", cm)
+	}
+	if e := c.Rules[3].Equals; e == nil || *e != "3" {
+		t.Errorf("equals of a number = %v", e)
+	}
+	if c.DisplayPath != ".status.kubernetesStatus.pvcName" || c.MinAge.D() != 30*time.Minute || c.Selector.Namespaces[0] != "longhorn-system" {
+		t.Errorf("check = %+v", c)
+	}
+	if (Resource{Version: "v1", Resource: "pods"}).String() != "pods" {
+		t.Error("core resource rendered with a group")
 	}
 }

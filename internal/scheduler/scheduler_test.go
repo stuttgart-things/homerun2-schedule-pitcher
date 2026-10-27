@@ -235,3 +235,31 @@ func TestSyncWhileRunning(t *testing.T) {
 		t.Fatal("not replaced")
 	}
 }
+
+// priorChecker records the prior it was run with and returns BadSince.
+type priorChecker struct {
+	fakeChecker
+	got []checks.Prior
+}
+
+func (p *priorChecker) RunWithPrior(_ context.Context, prior checks.Prior) (checks.Result, error) {
+	p.got = append(p.got, prior)
+	return p.res, p.err
+}
+
+func TestRunPassesPriorState(t *testing.T) {
+	s, _, _, now := setup(t)
+	ctx := context.Background()
+	since := map[string]time.Time{"ns/a": *now}
+	pc := &priorChecker{fakeChecker: fakeChecker{res: checks.Result{Summary: "1 x: 1 pending", BadSince: since}}}
+	s.entries["pat"].checker = pc
+
+	for range 2 {
+		if _, err := s.Run(ctx, "pat"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(pc.got) != 2 || pc.got[0].BadSince != nil || !pc.got[1].BadSince["ns/a"].Equal(*now) {
+		t.Fatalf("priors = %+v", pc.got)
+	}
+}

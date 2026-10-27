@@ -70,7 +70,7 @@ roleBindings = [
 # every namespace (central and agent).
 _scheduledRunName = "{}-scheduled-runs".format(config.name)
 
-clusterRoles = [
+_scheduledRunRoles = [
     {
         apiVersion: "rbac.authorization.k8s.io/v1"
         kind: "ClusterRole"
@@ -94,7 +94,7 @@ clusterRoles = [
     }
 ] if config.scheduledRunEnabled else []
 
-clusterRoleBindings = [
+_scheduledRunBindings = [
     {
         apiVersion: "rbac.authorization.k8s.io/v1"
         kind: "ClusterRoleBinding"
@@ -116,3 +116,51 @@ clusterRoleBindings = [
         ]
     }
 ] if config.scheduledRunEnabled else []
+
+# k8s-resource check: read the configured resources in every namespace
+# (central and agent).
+_k8sResourceName = "{}-k8s-resources".format(config.name)
+
+_k8sResourceRoles = [
+    {
+        apiVersion: "rbac.authorization.k8s.io/v1"
+        kind: "ClusterRole"
+        metadata: {
+            name: _k8sResourceName
+            labels: labels.commonLabels
+        }
+        rules: [
+            {
+                apiGroups: [t.apiGroup]
+                resources: t.resources
+                verbs: ["get", "list"]
+            } for t in config.k8sResourceTargets
+        ]
+    }
+] if config.k8sResourceTargets else []
+
+_k8sResourceBindings = [
+    {
+        apiVersion: "rbac.authorization.k8s.io/v1"
+        kind: "ClusterRoleBinding"
+        metadata: {
+            name: _k8sResourceName
+            labels: labels.commonLabels
+        }
+        roleRef: {
+            apiGroup: "rbac.authorization.k8s.io"
+            kind: "ClusterRole"
+            name: _k8sResourceName
+        }
+        subjects: [
+            {
+                kind: "ServiceAccount"
+                name: config.name
+                namespace: config.namespace
+            }
+        ]
+    }
+] if config.k8sResourceTargets else []
+
+clusterRoles = _scheduledRunRoles + _k8sResourceRoles
+clusterRoleBindings = _scheduledRunBindings + _k8sResourceBindings

@@ -31,3 +31,4 @@ kcl run kcl/main.k -D config.mode=agent -D config.reportToken=changeme \
 | `config.discoveryNamespaces` | `[]` | agent: Role with `get`, `list` |
 | `config.scheduledRunEnabled` | `false` | both: ClusterRole with `get`, `list` on `scheduledruns` for the `scheduled-run` check |
 | `config.scheduledRunTargets` | `[]` (`{apiGroup, resources}`) | both: kinds the ScheduledRuns create, e.g. `{apiGroup: resources.stuttgart-things.com, resources: [ansibleruns]}` |
+| `config.k8sResourceTargets` | `[]` (`{apiGroup, resources}`, `apiGroup` empty for the core API) | both: ClusterRole with `get`, `list` on these resources for the `k8s-resource` check, e.g. `{apiGroup: longhorn.io, resources: [volumes]}` |

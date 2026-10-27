@@ -26,6 +26,21 @@ type Result struct {
 	Summary string
 	// Subject names what was checked, e.g. the token owner or the certificate CN.
 	Subject string
+	// BadSince is kept in the check state for the next run: since when each
+	// object has been bad (k8s-resource with minAge).
+	BadSince map[string]time.Time
+}
+
+// Prior is what the previous run of a check left in its state.
+type Prior struct {
+	BadSince map[string]time.Time
+}
+
+// PriorChecker is a Checker that also reads what its previous run left.
+// The scheduler calls RunWithPrior instead of Run.
+type PriorChecker interface {
+	Checker
+	RunWithPrior(ctx context.Context, prior Prior) (Result, error)
 }
 
 // Checker runs one check.
@@ -63,6 +78,8 @@ func New(c profile.Check, secrets SecretResolver) (Checker, error) {
 		}, nil
 	case profile.TypeScheduledRun:
 		return NewScheduledRun(c), nil
+	case profile.TypeK8sResource:
+		return NewK8sResource(c), nil
 	default:
 		return nil, fmt.Errorf("unknown check type %q", c.Type)
 	}

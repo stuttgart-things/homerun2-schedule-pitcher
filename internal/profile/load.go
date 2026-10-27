@@ -220,6 +220,12 @@ func (p *SchedulePitcherProfile) applyCheckDefaults(c *Check) {
 		if c.RunTimeout == 0 {
 			c.RunTimeout = Duration(DefaultRunTimeout)
 		}
+	case TypeK8sResource:
+		for i := range c.Rules {
+			if c.Rules[i].Band == "" {
+				c.Rules[i].Band = "error"
+			}
+		}
 	case TypeTLSEndpoint:
 		if c.Target != "" {
 			if _, _, err := net.SplitHostPort(c.Target); err != nil {
@@ -413,10 +419,76 @@ func validateCheck(c Check) []error {
 		}
 	case TypeScheduledRun:
 		// selector, maxAge and runTimeout are optional.
+	case TypeK8sResource:
+		errs = append(errs, validateK8sResource(c)...)
 	case "":
 		add("type is required")
 	default:
 		add("unknown type %q", c.Type)
+	}
+	return errs
+}
+
+// ValidPath reports whether p is a field path like .status.robustness:
+// dot-separated, no empty segments, the leading dot optional.
+func ValidPath(p string) bool {
+	if p == "" {
+		return false
+	}
+	for _, seg := range PathSegments(p) {
+		if seg == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// PathSegments splits a field path into its fields.
+func PathSegments(p string) []string {
+	return strings.Split(strings.TrimPrefix(p, "."), ".")
+}
+
+func validateK8sResource(c Check) []error {
+	var errs []error
+	add := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
+	if c.Resource == nil || c.Resource.Version == "" || c.Resource.Resource == "" {
+		add("resource with version and resource is required for %s (group is empty for the core API)", c.Type)
+	}
+	if len(c.Rules) == 0 {
+		add("at least one rule is required for %s", c.Type)
+	}
+	for i, r := range c.Rules {
+		where := fmt.Sprintf("rules[%d]", i)
+		if b := r.Band; b != "warning" && b != "error" && b != "critical" {
+			add("%s: band must be warning, error or critical, got %q", where, b)
+		}
+		ops := 0
+		for _, set := range []bool{r.Equals != nil, r.NotEquals != nil, r.In != nil, r.NotIn != nil, r.Exists, r.Missing} {
+			if set {
+				ops++
+			}
+		}
+		if r.Condition != nil {
+			if r.Path != "" || ops > 0 {
+				add("%s: condition cannot be combined with path or an operator", where)
+			}
+			if r.Condition.Type == "" || r.Condition.Status == "" {
+				add("%s: condition needs type and status", where)
+			}
+			continue
+		}
+		if !ValidPath(r.Path) {
+			add("%s: path or condition is required, path like .status.robustness (got %q)", where, r.Path)
+		}
+		if (r.In != nil && len(r.In) == 0) || (r.NotIn != nil && len(r.NotIn) == 0) {
+			add("%s: in and notIn need at least one value", where)
+		}
+		if ops != 1 {
+			add("%s: exactly one of equals, notEquals, in, notIn, exists or missing is required", where)
+		}
+	}
+	if c.DisplayPath != "" && !ValidPath(c.DisplayPath) {
+		add("displayPath %q is not a field path like .status.kubernetesStatus.pvcName", c.DisplayPath)
 	}
 	return errs
 }
