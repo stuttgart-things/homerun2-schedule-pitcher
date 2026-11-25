@@ -8,7 +8,7 @@ on:
 
 jobs:
   cleanup:
-    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-cleanup-pr-artifacts.yaml@main
+    uses: stuttgart-things/github-workflow-templates/.github/workflows/call-cleanup-pr-artifacts.yaml@15bb803fd72658fda50120f8a566d5594061e6ee # v1.2.0
     with:
       runs-on: ubuntu-latest
       packages: homerun2-schedule-pitcher,homerun2-schedule-pitcher-kustomize,homerun2-schedule-pitcher-agent-kustomize
